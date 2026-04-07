@@ -121,31 +121,25 @@ pub fn AdminPage(key: String) -> impl IntoView {
                     wish: p.wish,
                 })
                 .collect(),
+            send_mails,
         };
 
         wasm_bindgen_futures::spawn_local(async move {
-            match api::put::<_, serde_json::Value>(&format!("/api/events/{key}"), &req).await {
-                Ok(_) => {
-                    add_toast(&set_toasts, "Saved", "Data saved.", ToastKind::Success);
+            match api::put::<_, AdminData>(&format!("/api/events/{key}"), &req).await {
+                Ok(data) => {
+                    // Refresh editor with fresh server state
+                    let participants: Vec<(String, Vec<i32>, ParticipantStatus, Option<String>)> =
+                        data.participants
+                            .iter()
+                            .map(|p| (p.mail.clone(), p.wish.clone(), p.status, Some(p.id.clone())))
+                            .collect();
+                    set_editor_text.set(parse::to_editor_text(&data.slots, &participants));
+                    set_event_name.set(data.name);
+
                     if send_mails {
-                        match api::post::<_, SendMailsResponse>(
-                            &format!("/api/events/{key}/send-mails"),
-                            &serde_json::json!({}),
-                        )
-                        .await
-                        {
-                            Ok(resp) => {
-                                add_toast(
-                                    &set_toasts,
-                                    "Sending",
-                                    &format!("Sending {} mails...", resp.total),
-                                    ToastKind::Info,
-                                );
-                            }
-                            Err(e) => {
-                                add_toast(&set_toasts, "Error", &e, ToastKind::Error);
-                            }
-                        }
+                        add_toast(&set_toasts, "Saved & sending", "Data saved. Sending mails...", ToastKind::Info);
+                    } else {
+                        add_toast(&set_toasts, "Saved", "Data saved.", ToastKind::Success);
                     }
                 }
                 Err(e) => {

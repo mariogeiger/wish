@@ -108,7 +108,7 @@ pub async fn get_admin_data(
     })
 }
 
-// ── Update event data ──────────────────────────────────────────────
+// ── Update event data (+ optionally send mails) ───────────────────
 
 pub async fn set_admin_data(
     state: web::Data<AppState>,
@@ -140,10 +140,11 @@ pub async fn set_admin_data(
         }
     }
 
-    state.with_db_save(|db| {
+    // Save data
+    let save_result: Option<AdminData> = state.with_db_save(|db| {
         let event = match db.events.iter_mut().find(|e| e.id == event_id) {
             Some(e) => e,
-            None => return HttpResponse::NotFound().finish(),
+            None => return None,
         };
 
         // Detect if slots changed (names differ)
@@ -159,7 +160,6 @@ pub async fn set_admin_data(
         // Reconcile participants
         let mut new_participant_ids = Vec::new();
         for pi in &body.participants {
-            // Find existing participant by mail + event
             let existing = db
                 .participants
                 .iter_mut()
@@ -189,13 +189,130 @@ pub async fn set_admin_data(
         db.participants.retain(|p| {
             p.event != event_id || new_participant_ids.contains(&p.id)
         });
-        let removed = old_ids.len() - old_ids.iter().filter(|id| new_participant_ids.contains(id)).count();
+        let removed = old_ids.len()
+            - old_ids
+                .iter()
+                .filter(|id| new_participant_ids.contains(id))
+                .count();
         if removed > 0 {
             log::info!("Removed {removed} stale participants from event {event_id}");
         }
 
-        HttpResponse::Ok().json(serde_json::json!({"ok": true}))
-    })
+        // Build fresh AdminData response
+        let mut participants: Vec<Participant> = db
+            .participants
+            .iter()
+            .filter(|p| event.participants.contains(&p.id))
+            .cloned()
+            .collect();
+        participants.sort_by(|a, b| a.mail.cmp(&b.mail));
+
+        Some(AdminData {
+            name: event.name.clone(),
+            slots: event.slots.clone(),
+            participants,
+        })
+    });
+
+    let admin_data = match save_result {
+        Some(d) => d,
+        None => return HttpResponse::NotFound().finish(),
+    };
+
+    // Optionally send mails
+    if body.send_mails {
+        let info = get_event_info(&state, &event_id).unwrap();
+        let resend = state.resend.clone();
+
+        let to_send: Vec<(String, String, ParticipantStatus)> = state.with_db(|db| {
+            let event = db.events.iter().find(|e| e.id == event_id).unwrap();
+            db.participants
+                .iter()
+                .filter(|p| event.participants.contains(&p.id) && p.status.as_i32() <= 10)
+                .map(|p| (p.id.clone(), p.mail.clone(), p.status))
+                .collect()
+        });
+
+        let broadcast_tx = state.get_broadcast(&event_id);
+        let total = to_send.len();
+        let safe_name = escape_html(&info.event_name);
+        let safe_admin = escape_html(&info.admin_mail);
+        let safe_message = escape_html(&info.event_message);
+
+        let state_ref = state.clone();
+        tokio::spawn(async move {
+            let mut sent = 0usize;
+            let mut errors = Vec::new();
+
+            for (pid, mail, status) in &to_send {
+                let wish_url = format!("{}/wish?{pid}", info.base_url);
+                let (html, text) = if status.as_i32() <= 0 {
+                    (
+                        format!(
+                            "<p>Hi,</p>\
+                             <p>You have been invited by {safe_admin} to give your wishes about the event: <strong>{safe_name}</strong></p><br />\
+                             <pre>{safe_message}</pre>\
+                             <p><a href=\"{wish_url}\">Click here</a> to set your wishes.</p>\
+                             <p>Have a nice day,<br />The Wish team</p>"
+                        ),
+                        format!(
+                            "Hi,\n\
+                             You have been invited by {} to give your wishes about the event: {}\n\
+                             {}\n\n\
+                             {wish_url}\n\n\
+                             Have a nice day,\nThe Wish team",
+                            info.admin_mail, info.event_name, info.event_message
+                        ),
+                    )
+                } else {
+                    (
+                        format!(
+                            "<p>Hi,</p>\
+                             <p>The administrator ({safe_admin}) of the event <strong>{safe_name}</strong> has modified the slots.</p>\
+                             <p>Please look at <a href=\"{wish_url}\">your wish</a>.</p>\
+                             <p>Have a nice day,<br />The Wish team</p>"
+                        ),
+                        format!(
+                            "Hi,\n\
+                             The administrator ({}) of the event {} has modified the slots.\n\
+                             Please look at your wish: {wish_url}\n\n\
+                             Have a nice day,\nThe Wish team",
+                            info.admin_mail, info.event_name
+                        ),
+                    )
+                };
+
+                let new_status = match resend
+                    .send(mail, &format!("Wish: {}", info.event_name), &html, &text)
+                    .await
+                {
+                    Ok(()) => {
+                        sent += 1;
+                        ParticipantStatus::Mailed
+                    }
+                    Err(e) => {
+                        errors.push(format!("{mail}: {e}"));
+                        ParticipantStatus::MailError
+                    }
+                };
+
+                state_ref.with_db_save(|db| {
+                    if let Some(p) = db.participants.iter_mut().find(|p| p.id == *pid) {
+                        p.status = new_status;
+                    }
+                });
+
+                let msg = WsMsg::MailProgress {
+                    sent,
+                    total,
+                    errors: errors.clone(),
+                };
+                let _ = broadcast_tx.send(serde_json::to_string(&msg).unwrap());
+            }
+        });
+    }
+
+    HttpResponse::Ok().json(admin_data)
 }
 
 // ── Helper: load event info or return 404 ──────────────────────────
@@ -216,111 +333,6 @@ fn get_event_info(state: &AppState, event_id: &str) -> Option<EventInfo> {
             event_message: event.message.clone(),
         })
     })
-}
-
-// ── Send mails (invitations / updates) ─────────────────────────────
-
-pub async fn send_mails(
-    state: web::Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
-    let event_id = path.into_inner();
-    let resend = state.resend.clone();
-
-    let info = match get_event_info(&state, &event_id) {
-        Some(i) => i,
-        None => return HttpResponse::NotFound().finish(),
-    };
-
-    let to_send: Vec<(String, String, ParticipantStatus)> = state.with_db(|db| {
-        let event = db.events.iter().find(|e| e.id == event_id).unwrap();
-        db.participants
-            .iter()
-            .filter(|p| event.participants.contains(&p.id) && p.status.as_i32() <= 10)
-            .map(|p| (p.id.clone(), p.mail.clone(), p.status))
-            .collect()
-    });
-
-    let total = to_send.len();
-    let broadcast_tx = state.get_broadcast(&event_id);
-    let safe_name = escape_html(&info.event_name);
-    let safe_admin = escape_html(&info.admin_mail);
-    let safe_message = escape_html(&info.event_message);
-
-    let state_ref = state.clone();
-    tokio::spawn(async move {
-        let mut sent = 0usize;
-        let mut errors = Vec::new();
-
-        for (pid, mail, status) in &to_send {
-            let wish_url = format!("{}/wish?{pid}", info.base_url);
-            let (html, text) = if status.as_i32() <= 0 {
-                (
-                    format!(
-                        "<p>Hi,</p>\
-                         <p>You have been invited by {safe_admin} to give your wishes about the event: <strong>{safe_name}</strong></p><br />\
-                         <pre>{safe_message}</pre>\
-                         <p><a href=\"{wish_url}\">Click here</a> to set your wishes.</p>\
-                         <p>Have a nice day,<br />The Wish team</p>"
-                    ),
-                    format!(
-                        "Hi,\n\
-                         You have been invited by {} to give your wishes about the event: {}\n\
-                         {}\n\n\
-                         {wish_url}\n\n\
-                         Have a nice day,\nThe Wish team",
-                        info.admin_mail, info.event_name, info.event_message
-                    ),
-                )
-            } else {
-                (
-                    format!(
-                        "<p>Hi,</p>\
-                         <p>The administrator ({safe_admin}) of the event <strong>{safe_name}</strong> has modified the slots.</p>\
-                         <p>Please look at <a href=\"{wish_url}\">your wish</a>.</p>\
-                         <p>Have a nice day,<br />The Wish team</p>"
-                    ),
-                    format!(
-                        "Hi,\n\
-                         The administrator ({}) of the event {} has modified the slots.\n\
-                         Please look at your wish: {wish_url}\n\n\
-                         Have a nice day,\nThe Wish team",
-                        info.admin_mail, info.event_name
-                    ),
-                )
-            };
-
-            let new_status = match resend
-                .send(mail, &format!("Wish: {}", info.event_name), &html, &text)
-                .await
-            {
-                Ok(()) => {
-                    sent += 1;
-                    ParticipantStatus::Mailed
-                }
-                Err(e) => {
-                    errors.push(format!("{mail}: {e}"));
-                    ParticipantStatus::MailError
-                }
-            };
-
-            // Update status per participant
-            state_ref.with_db_save(|db| {
-                if let Some(p) = db.participants.iter_mut().find(|p| p.id == *pid) {
-                    p.status = new_status;
-                }
-            });
-
-            let msg = WsMsg::MailProgress {
-                sent,
-                total,
-                errors: errors.clone(),
-            };
-            let _ = broadcast_tx.send(serde_json::to_string(&msg).unwrap());
-        }
-    });
-
-    HttpResponse::Ok().json(SendMailsResponse { total })
 }
 
 // ── Send reminders ─────────────────────────────────────────────────

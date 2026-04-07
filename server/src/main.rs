@@ -172,10 +172,6 @@ async fn main() -> std::io::Result<()> {
             .route("/api/events/{id}", web::put().to(handlers::set_admin_data))
             // Email actions
             .route(
-                "/api/events/{id}/send-mails",
-                web::post().to(handlers::send_mails),
-            )
-            .route(
                 "/api/events/{id}/remind",
                 web::post().to(handlers::send_reminders),
             )

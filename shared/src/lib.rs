@@ -106,6 +106,8 @@ pub struct AdminData {
 pub struct SetDataRequest {
     pub slots: Vec<Slot>,
     pub participants: Vec<ParticipantInput>,
+    #[serde(default)]
+    pub send_mails: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

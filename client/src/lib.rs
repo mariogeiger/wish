@@ -40,8 +40,19 @@ fn get_path() -> String {
 }
 
 fn get_query() -> String {
-    web_sys::window()
-        .and_then(|w| w.location().search().ok())
-        .map(|s| s.trim_start_matches('?').to_string())
-        .unwrap_or_default()
+    let window = match web_sys::window() {
+        Some(w) => w,
+        None => return String::new(),
+    };
+    let location = window.location();
+    // Support both ?key (new) and #key (old app compat)
+    let search = location.search().ok().unwrap_or_default();
+    let hash = location.hash().ok().unwrap_or_default();
+    let from_search = search.trim_start_matches('?');
+    let from_hash = hash.trim_start_matches('#');
+    if !from_search.is_empty() {
+        from_search.to_string()
+    } else {
+        from_hash.to_string()
+    }
 }
