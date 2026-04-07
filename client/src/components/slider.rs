@@ -30,7 +30,7 @@ pub fn WishSliders(
                                 <td>{name}</td>
                                 <td>
                                     <div class="slider-cell">
-                                        <span>"\u{2639}"</span>
+                                        <span>"\u{1F4A9}"</span>
                                         <input
                                             type="range"
                                             min="0"
@@ -48,7 +48,7 @@ pub fn WishSliders(
                                                 apply_fairness(i, new_value, &set_wish, n);
                                             }
                                         />
-                                        <span>"\u{2665}"</span>
+                                        <span>"\u{1F929}"</span>
                                     </div>
                                 </td>
                             </tr>
