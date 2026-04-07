@@ -1,0 +1,20 @@
+[package]
+name = "wish-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wish-shared = { path = "../shared" }
+actix-web = "4"
+actix-files = "0.6"
+actix-ws = "0.3"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json"] }
+rand = "0.9"
+hex = "0.4"
+futures-util = "0.3"
+env_logger = "0.11"
+log = "0.4"
+dotenvy = "0.15"
