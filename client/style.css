@@ -105,8 +105,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .slot-row input[type="text"] { flex: 3; }
 .slot-row input[type="number"] { flex: 1; max-width: 80px; }
 .slot-header { display: flex; gap: 0.5rem; margin-bottom: 0.4rem; font-weight: 600; font-size: 0.85rem; }
-.slot-header span:first-child { flex: 3; }
 .slot-header span { flex: 1; max-width: 80px; text-align: center; }
+.slot-header span:first-child { flex: 3; max-width: none; text-align: left; }
 
 /* ── Wish sliders ───────────────────────────────────────────────── */
 
