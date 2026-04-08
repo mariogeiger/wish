@@ -4,7 +4,7 @@
 /// Given a cost matrix (workers x jobs), returns an assignment vector where
 /// result[worker] = assigned job, or -1 if unassigned.
 pub fn hungarian(cost_matrix: &[Vec<f64>]) -> Vec<i32> {
-    if cost_matrix.is_empty() {
+    if cost_matrix.is_empty() || cost_matrix[0].is_empty() {
         return Vec::new();
     }
     let rows = cost_matrix.len();
@@ -217,7 +217,7 @@ pub fn assignment_to_slots(
     let mut result = Vec::with_capacity(assignment.len());
     for &a in assignment {
         let mut remaining = a;
-        let mut slot_idx = 0;
+        let mut slot_idx = slots.len().saturating_sub(1);
         for (j, &(_vmin, vmax)) in slots.iter().enumerate() {
             let effective_vmax = vmax.min(num_participants as u32) as i32;
             if remaining < effective_vmax {

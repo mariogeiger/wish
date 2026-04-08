@@ -21,10 +21,22 @@ pub fn load_db() -> Db {
 }
 
 pub fn save_db(db: &Db) {
-    let json = serde_json::to_string_pretty(db).unwrap();
+    let json = match serde_json::to_string_pretty(db) {
+        Ok(j) => j,
+        Err(e) => {
+            log::error!("Failed to serialize db: {e}");
+            return;
+        }
+    };
     let tmp = db_path().with_extension("tmp");
-    std::fs::write(&tmp, &json).ok();
-    std::fs::rename(&tmp, db_path()).ok();
+    if let Err(e) = std::fs::write(&tmp, &json) {
+        log::error!("Failed to write {}: {e}", tmp.display());
+        return;
+    }
+    if let Err(e) = std::fs::rename(&tmp, db_path()) {
+        log::error!("Failed to rename {} -> {}: {e}", tmp.display(), db_path().display());
+        return;
+    }
     backup_db();
 }
 

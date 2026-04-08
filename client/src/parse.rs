@@ -165,6 +165,7 @@ pub fn parse(text: &str) -> ParseResult {
                         line: line_idx,
                         message: "max must be >= min".to_string(),
                     });
+                    continue;
                 }
                 sum_vmin += vmin;
                 sum_vmax += vmax;

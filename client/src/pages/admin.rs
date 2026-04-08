@@ -250,13 +250,14 @@ pub fn AdminPage(key: String) -> impl IntoView {
             if !in_results || trimmed.starts_with('%') || trimmed.is_empty() {
                 continue;
             }
-            // Parse: "mail" "slot name" ...
-            let parts: Vec<&str> = trimmed.split('"').filter(|s| !s.trim().is_empty()).collect();
-            if parts.len() >= 2 {
-                entries.push(ResultEntry {
-                    mail: parts[0].to_string(),
-                    slot: parts[1].to_string(),
-                });
+            // Extract two quoted strings: "mail" "slot name"
+            if let Some((mail, rest)) = extract_quoted(trimmed) {
+                if let Some((slot, _)) = extract_quoted(rest) {
+                    entries.push(ResultEntry {
+                        mail: mail.to_string(),
+                        slot: slot.to_string(),
+                    });
+                }
             }
         }
 
@@ -335,4 +336,12 @@ pub fn AdminPage(key: String) -> impl IntoView {
             </div>
         </div>
     }
+}
+
+/// Extract first quoted string from text, return (content, rest after closing quote).
+fn extract_quoted(s: &str) -> Option<(&str, &str)> {
+    let start = s.find('"')?;
+    let after_open = &s[start + 1..];
+    let end = after_open.find('"')?;
+    Some((&after_open[..end], after_open[end + 1..].trim()))
 }

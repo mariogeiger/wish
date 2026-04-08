@@ -5,10 +5,20 @@ use crate::{AppState, gen_id};
 
 // ── Create event ───────────────────────────────────────────────────
 
+const MAX_SLOTS: usize = 100;
+const MAX_PARTICIPANTS: usize = 1000;
+
 pub async fn create_event(
     state: web::Data<AppState>,
     body: web::Json<CreateEventRequest>,
 ) -> HttpResponse {
+    if body.slots.len() > MAX_SLOTS {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "too many slots (max 100)"}));
+    }
+    if body.mails.len() > MAX_PARTICIPANTS {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "too many participants (max 1000)"}));
+    }
+
     let base_url = state.config.base_url.clone();
     let resend = state.resend.clone();
 
@@ -117,6 +127,13 @@ pub async fn set_admin_data(
 ) -> HttpResponse {
     let event_id = path.into_inner();
 
+    if body.slots.len() > MAX_SLOTS {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "too many slots (max 100)"}));
+    }
+    if body.participants.len() > MAX_PARTICIPANTS {
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "too many participants (max 1000)"}));
+    }
+
     // Validate
     let mut sum_vmin = 0u32;
     let mut sum_vmax = 0u32;
@@ -221,11 +238,17 @@ pub async fn set_admin_data(
 
     // Optionally send mails
     if body.send_mails {
-        let info = get_event_info(&state, &event_id).unwrap();
+        let info = match get_event_info(&state, &event_id) {
+            Some(i) => i,
+            None => return HttpResponse::Ok().json(admin_data),
+        };
         let resend = state.resend.clone();
 
         let to_send: Vec<(String, String, ParticipantStatus)> = state.with_db(|db| {
-            let event = db.events.iter().find(|e| e.id == event_id).unwrap();
+            let event = match db.events.iter().find(|e| e.id == event_id) {
+                Some(e) => e,
+                None => return Vec::new(),
+            };
             db.participants
                 .iter()
                 .filter(|p| event.participants.contains(&p.id) && p.status.as_i32() <= 10)
@@ -350,7 +373,10 @@ pub async fn send_reminders(
     };
 
     let to_remind: Vec<(String, String)> = state.with_db(|db| {
-        let event = db.events.iter().find(|e| e.id == event_id).unwrap();
+        let event = match db.events.iter().find(|e| e.id == event_id) {
+            Some(e) => e,
+            None => return Vec::new(),
+        };
         db.participants
             .iter()
             .filter(|p| event.participants.contains(&p.id) && p.status.needs_reminder())
