@@ -6,6 +6,14 @@ mod hungarian;
 mod pages;
 mod parse;
 
+pub fn input_value(ev: &web_sys::Event) -> String {
+    use wasm_bindgen::JsCast;
+    ev.target()
+        .unwrap()
+        .unchecked_into::<web_sys::HtmlInputElement>()
+        .value()
+}
+
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn main() {
     console_error_panic_hook::set_once();

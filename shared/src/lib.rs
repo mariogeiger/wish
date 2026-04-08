@@ -53,7 +53,12 @@ impl ParticipantStatus {
 
     /// Whether this participant still needs to fill their wishes.
     pub fn needs_reminder(self) -> bool {
-        self.as_i32() < 35
+        match self {
+            Self::New | Self::UpdatePending | Self::MailError | Self::Mailed | Self::Visited => {
+                true
+            }
+            Self::Done | Self::Modified => false,
+        }
     }
 }
 
@@ -288,6 +293,93 @@ mod tests {
     fn fair_wish_single() {
         assert!(is_fair_wish(&[0]));
         assert!(!is_fair_wish(&[1]));
+    }
+
+    // ── escape_html ───────────────────────────────────────────────
+
+    #[test]
+    fn escape_html_no_special_chars() {
+        assert_eq!(escape_html("hello world"), "hello world");
+    }
+
+    #[test]
+    fn escape_html_all_special_chars() {
+        assert_eq!(
+            escape_html(r#"<script>alert("x&y")</script>"#),
+            "&lt;script&gt;alert(&quot;x&amp;y&quot;)&lt;/script&gt;"
+        );
+    }
+
+    #[test]
+    fn escape_html_single_quotes() {
+        assert_eq!(escape_html("it's"), "it&#x27;s");
+    }
+
+    #[test]
+    fn escape_html_empty() {
+        assert_eq!(escape_html(""), "");
+    }
+
+    // ── Slot serialization ────────────────────────────────────────
+
+    #[test]
+    fn slot_round_trip_json() {
+        let slot = Slot { name: "Morning".into(), vmin: 2, vmax: 5 };
+        let json = serde_json::to_string(&slot).unwrap();
+        let back: Slot = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.name, "Morning");
+        assert_eq!(back.vmin, 2);
+        assert_eq!(back.vmax, 5);
+    }
+
+    #[test]
+    fn participant_status_default_serialization() {
+        let p = Participant {
+            id: "abc".into(),
+            mail: "test@x".into(),
+            wish: vec![0, 1],
+            event: "ev1".into(),
+            status: ParticipantStatus::default(),
+        };
+        let json = serde_json::to_string(&p).unwrap();
+        let back: Participant = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.status, ParticipantStatus::New);
+    }
+
+    #[test]
+    fn participant_missing_status_defaults_to_new() {
+        let json = r#"{"id":"a","mail":"b@c","wish":[0],"event":"e"}"#;
+        let p: Participant = serde_json::from_str(json).unwrap();
+        assert_eq!(p.status, ParticipantStatus::New);
+    }
+
+    // ── WsMsg serialization ───────────────────────────────────────
+
+    #[test]
+    fn ws_msg_new_wish_round_trip() {
+        let msg = WsMsg::NewWish { mail: "a@b".into() };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"NewWish\""));
+        let back: WsMsg = serde_json::from_str(&json).unwrap();
+        match back {
+            WsMsg::NewWish { mail } => assert_eq!(mail, "a@b"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn ws_msg_mail_progress_round_trip() {
+        let msg = WsMsg::MailProgress { sent: 3, total: 10, errors: vec!["fail@x".into()] };
+        let json = serde_json::to_string(&msg).unwrap();
+        let back: WsMsg = serde_json::from_str(&json).unwrap();
+        match back {
+            WsMsg::MailProgress { sent, total, errors } => {
+                assert_eq!(sent, 3);
+                assert_eq!(total, 10);
+                assert_eq!(errors, vec!["fail@x"]);
+            }
+            _ => panic!("wrong variant"),
+        }
     }
 }
 

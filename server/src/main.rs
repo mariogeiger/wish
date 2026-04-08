@@ -6,7 +6,7 @@ use std::net::TcpListener;
 use std::os::unix::io::FromRawFd;
 use std::sync::Mutex;
 
-mod db;
+pub(crate) mod db;
 mod email;
 mod handlers;
 
@@ -58,13 +58,17 @@ impl AppState {
         result
     }
 
-    fn subscribe(&self, event_id: &str) -> tokio::sync::broadcast::Receiver<String> {
+    fn get_or_create_room(&self, event_id: &str) -> tokio::sync::broadcast::Sender<String> {
         self.rooms
             .lock()
             .unwrap()
             .entry(event_id.to_string())
             .or_insert_with(|| tokio::sync::broadcast::channel(64).0)
-            .subscribe()
+            .clone()
+    }
+
+    fn subscribe(&self, event_id: &str) -> tokio::sync::broadcast::Receiver<String> {
+        self.get_or_create_room(event_id).subscribe()
     }
 
     fn broadcast(&self, event_id: &str, msg: &str) {
@@ -75,12 +79,7 @@ impl AppState {
     }
 
     pub fn get_broadcast(&self, event_id: &str) -> tokio::sync::broadcast::Sender<String> {
-        self.rooms
-            .lock()
-            .unwrap()
-            .entry(event_id.to_string())
-            .or_insert_with(|| tokio::sync::broadcast::channel(64).0)
-            .clone()
+        self.get_or_create_room(event_id)
     }
 }
 

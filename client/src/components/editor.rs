@@ -159,9 +159,7 @@ pub fn Editor(
                 node_ref=textarea_ref
                 prop:value=move || text.get()
                 on:input=move |ev| {
-                    use wasm_bindgen::JsCast;
-                    let target: web_sys::HtmlTextAreaElement = ev.target().unwrap().unchecked_into();
-                    set_text.set(target.value());
+                    set_text.set(crate::input_value(&ev));
                 }
                 on:scroll=on_scroll
                 spellcheck="false"

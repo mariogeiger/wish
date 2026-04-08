@@ -39,11 +39,31 @@ pub struct ParseResult {
 ///
 /// Lines starting with % or # are comments.
 pub fn parse(text: &str) -> ParseResult {
+    #[derive(Clone, Copy)]
+    enum Section {
+        Before,
+        Slots,
+        Participants,
+    }
+
+    fn parse_u32(token: &str, line_idx: usize, errors: &mut Vec<ParseError>) -> Option<u32> {
+        match token.parse() {
+            Ok(v) => Some(v),
+            Err(_) => {
+                errors.push(ParseError {
+                    line: line_idx,
+                    message: format!("'{token}' is not a valid number"),
+                });
+                None
+            }
+        }
+    }
+
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     let mut slots: Vec<Slot> = Vec::new();
     let mut participants: Vec<ParsedParticipant> = Vec::new();
-    let mut section: Option<&str> = None;
+    let mut section = Section::Before;
     let mut sum_vmin = 0u32;
     let mut sum_vmax = 0u32;
 
@@ -60,23 +80,23 @@ pub fn parse(text: &str) -> ParseResult {
             if let Some(end) = trimmed.find(']') {
                 let word = trimmed[1..end].trim();
                 match (section, word) {
-                    (None, "slots") => section = Some("slots"),
-                    (Some("slots"), "participants") => section = Some("participants"),
-                    (None, _) => {
+                    (Section::Before, "slots") => section = Section::Slots,
+                    (Section::Slots, "participants") => section = Section::Participants,
+                    (Section::Before, _) => {
                         errors.push(ParseError {
                             line: line_idx,
                             message: "Expected [slots] section first".to_string(),
                         });
                         return ParseResult { slots, participants, errors, warnings };
                     }
-                    (Some("slots"), _) => {
+                    (Section::Slots, _) => {
                         errors.push(ParseError {
                             line: line_idx,
                             message: "Expected [participants] section".to_string(),
                         });
                         return ParseResult { slots, participants, errors, warnings };
                     }
-                    _ => {
+                    (Section::Participants, _) => {
                         errors.push(ParseError {
                             line: line_idx,
                             message: "Unexpected section".to_string(),
@@ -94,7 +114,7 @@ pub fn parse(text: &str) -> ParseResult {
             continue;
         }
 
-        if section.is_none() {
+        if matches!(section, Section::Before) {
             warnings.push(ParseWarning {
                 line: line_idx,
                 message: "Line ignored: not in a section. [slots] missing?".to_string(),
@@ -132,7 +152,8 @@ pub fn parse(text: &str) -> ParseResult {
         let tokens: Vec<&str> = rest.split_whitespace().collect();
 
         match section {
-            Some("slots") => {
+            Section::Before => unreachable!(),
+            Section::Slots => {
                 if tokens.len() < 2 {
                     errors.push(ParseError {
                         line: line_idx,
@@ -140,25 +161,13 @@ pub fn parse(text: &str) -> ParseResult {
                     });
                     continue;
                 }
-                let vmin: u32 = match tokens[0].parse() {
-                    Ok(v) => v,
-                    Err(_) => {
-                        errors.push(ParseError {
-                            line: line_idx,
-                            message: format!("'{}' is not a valid number", tokens[0]),
-                        });
-                        continue;
-                    }
+                let vmin = match parse_u32(tokens[0], line_idx, &mut errors) {
+                    Some(v) => v,
+                    None => continue,
                 };
-                let vmax: u32 = match tokens[1].parse() {
-                    Ok(v) => v,
-                    Err(_) => {
-                        errors.push(ParseError {
-                            line: line_idx,
-                            message: format!("'{}' is not a valid number", tokens[1]),
-                        });
-                        continue;
-                    }
+                let vmax = match parse_u32(tokens[1], line_idx, &mut errors) {
+                    Some(v) => v,
+                    None => continue,
                 };
                 if vmax < vmin {
                     errors.push(ParseError {
@@ -175,7 +184,7 @@ pub fn parse(text: &str) -> ParseResult {
                     vmax,
                 });
             }
-            Some("participants") => {
+            Section::Participants => {
                 let mut wish = Vec::new();
                 for tok in &tokens {
                     match tok.parse::<i32>() {
@@ -185,14 +194,12 @@ pub fn parse(text: &str) -> ParseResult {
                                 line: line_idx,
                                 message: format!("'{tok}' is not a non-negative number"),
                             });
-                            break;
                         }
                         Err(_) => {
                             errors.push(ParseError {
                                 line: line_idx,
                                 message: format!("'{tok}' is not a valid number"),
                             });
-                            break;
                         }
                     }
                 }
@@ -243,11 +250,6 @@ pub fn parse(text: &str) -> ParseResult {
                     wish,
                 });
             }
-            _ => {}
-        }
-
-        if !errors.is_empty() {
-            break;
         }
     }
 
@@ -266,7 +268,7 @@ pub fn parse(text: &str) -> ParseResult {
     }
 }
 
-fn parse_quoted_string(s: &str) -> Option<(&str, &str)> {
+pub fn parse_quoted_string(s: &str) -> Option<(&str, &str)> {
     if !s.starts_with('"') {
         return None;
     }
@@ -675,5 +677,191 @@ mod tests {
     #[test]
     fn quoted_string_unclosed() {
         assert_eq!(parse_quoted_string("\"unclosed"), None);
+    }
+
+    // ── parse → compute → format_results integration ──────────────
+
+    #[test]
+    fn parse_then_format_results_round_trip() {
+        use crate::hungarian;
+
+        let text = r#"[slots]
+"Morning"   1 3
+"Afternoon" 1 3
+
+[participants]
+"alice@x" 0 1
+"bob@y"   1 0
+"carol@z" 0 1
+"#;
+        let parsed = parse(text);
+        assert!(parsed.errors.is_empty(), "errors: {:?}", parsed.errors);
+
+        let slots_data: Vec<(u32, u32)> =
+            parsed.slots.iter().map(|s| (s.vmin, s.vmax)).collect();
+        let n = parsed.participants.len();
+        let wishes: Vec<Vec<i32>> = parsed.participants.iter().map(|p| p.wish.clone()).collect();
+
+        let cost = hungarian::build_cost_matrix(&wishes, &slots_data, n);
+        let assignment = hungarian::hungarian(&cost);
+        let slot_indices = hungarian::assignment_to_slots(&assignment, &slots_data, n);
+
+        // Every participant must be assigned to a valid slot
+        for &si in &slot_indices {
+            assert!(si < parsed.slots.len(), "invalid slot index {si}");
+        }
+
+        let participants_for_results: Vec<(String, Vec<i32>)> = parsed
+            .participants
+            .iter()
+            .map(|p| (p.mail.clone(), p.wish.clone()))
+            .collect();
+
+        let result_text = format_results(&parsed.slots, &participants_for_results, &slot_indices);
+        assert!(result_text.contains("[statistics]"));
+        assert!(result_text.contains("[results]"));
+        assert!(result_text.contains("\"alice@x\""));
+        assert!(result_text.contains("\"bob@y\""));
+        assert!(result_text.contains("\"carol@z\""));
+        assert!(result_text.contains("\"Morning\"") || result_text.contains("\"Afternoon\""));
+    }
+
+    #[test]
+    fn parse_offline_default_text() {
+        // Exact default text from offline.rs — must parse cleanly
+        let text = r#"[slots]
+"Monday morning"    0 10
+"Monday afternoon"  0 10
+"Tuesday morning"   0 10
+
+[participants]
+"alice@example.com"   0 1 2
+"bob@example.com"     2 0 1
+"charlie@example.com" 1 2 0
+"#;
+        let parsed = parse(text);
+        assert!(parsed.errors.is_empty(), "errors: {:?}", parsed.errors);
+        assert!(parsed.warnings.is_empty(), "warnings: {:?}", parsed.warnings);
+        assert_eq!(parsed.slots.len(), 3);
+        assert_eq!(parsed.participants.len(), 3);
+        assert_eq!(parsed.slots[0].name, "Monday morning");
+        assert_eq!(parsed.participants[0].mail, "alice@example.com");
+        assert_eq!(parsed.participants[0].wish, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn format_results_all_participants_appear() {
+        let slots = vec![
+            Slot { name: "A".into(), vmin: 1, vmax: 5 },
+            Slot { name: "B".into(), vmin: 1, vmax: 5 },
+            Slot { name: "C".into(), vmin: 1, vmax: 5 },
+        ];
+        let participants = vec![
+            ("p1@x".into(), vec![0, 1, 2]),
+            ("p2@x".into(), vec![2, 0, 1]),
+            ("p3@x".into(), vec![1, 2, 0]),
+        ];
+        let result = vec![0, 1, 2];
+        let text = format_results(&slots, &participants, &result);
+
+        // All participants in results
+        assert!(text.contains("\"p1@x\""));
+        assert!(text.contains("\"p2@x\""));
+        assert!(text.contains("\"p3@x\""));
+        // All slot names in statistics
+        assert!(text.contains("\"A\""));
+        assert!(text.contains("\"B\""));
+        assert!(text.contains("\"C\""));
+        // Score = 0^2 + 0^2 + 0^2 = 0 (everyone got first choice)
+        assert!(text.contains("\"total score\" 0"));
+    }
+
+    #[test]
+    fn format_results_statistics_counts_correct() {
+        let slots = vec![
+            Slot { name: "X".into(), vmin: 2, vmax: 2 },
+            Slot { name: "Y".into(), vmin: 1, vmax: 1 },
+        ];
+        let participants = vec![
+            ("a@a".into(), vec![0, 2]),  // assigned to X, wish=0
+            ("b@b".into(), vec![1, 0]),  // assigned to X, wish=1
+            ("c@c".into(), vec![2, 0]),  // assigned to Y, wish=0
+        ];
+        let result = vec![0, 0, 1]; // a→X, b→X, c→Y
+        let text = format_results(&slots, &participants, &result);
+        // Score = 0 + 1 + 0 = 1
+        assert!(text.contains("\"total score\" 1"));
+    }
+
+    #[test]
+    fn to_editor_text_alignment() {
+        // Slot names of different lengths should be padded for alignment
+        let slots = vec![
+            Slot { name: "A".into(), vmin: 1, vmax: 5 },
+            Slot { name: "Long Name".into(), vmin: 0, vmax: 3 },
+        ];
+        let participants = vec![
+            ("short@x".into(), vec![0, 1], ParticipantStatus::New, None),
+            ("very-long-email@example.com".into(), vec![1, 0], ParticipantStatus::Done, Some("id1".into())),
+        ];
+        let text = to_editor_text(&slots, &participants);
+        // Should parse back without errors
+        let parsed = parse(&text);
+        assert!(parsed.errors.is_empty(), "alignment broke parsing: {:?}\ntext:\n{text}", parsed.errors);
+        assert_eq!(parsed.slots.len(), 2);
+        assert_eq!(parsed.participants.len(), 2);
+    }
+
+    #[test]
+    fn parse_negative_wish_value() {
+        let text = "[slots]\n\"A\" 0 5\n[participants]\n\"x@a\" -1\n";
+        let r = parse(text);
+        assert!(!r.errors.is_empty());
+        assert!(r.errors[0].message.contains("non-negative"));
+    }
+
+    #[test]
+    fn parse_non_numeric_wish() {
+        let text = "[slots]\n\"A\" 0 5\n[participants]\n\"x@a\" abc\n";
+        let r = parse(text);
+        assert!(!r.errors.is_empty());
+        assert!(r.errors[0].message.contains("not a valid number"));
+    }
+
+    #[test]
+    fn parse_slot_non_numeric_bounds() {
+        let text = "[slots]\n\"A\" abc 5\n[participants]\n";
+        let r = parse(text);
+        assert!(!r.errors.is_empty());
+        assert!(r.errors[0].message.contains("not a valid number"));
+    }
+
+    #[test]
+    fn parse_many_participants_many_slots() {
+        // Stress test: 10 slots, 10 participants
+        let mut text = String::from("[slots]\n");
+        for i in 0..10 {
+            text.push_str(&format!("\"Slot{}\" 1 10\n", i));
+        }
+        text.push_str("\n[participants]\n");
+        for i in 0..10 {
+            text.push_str(&format!("\"p{}@x\"", i));
+            for j in 0..10 {
+                text.push_str(&format!(" {}", (i + j) % 10));
+            }
+            text.push('\n');
+        }
+        let r = parse(&text);
+        assert!(r.errors.is_empty(), "errors: {:?}", r.errors);
+        assert_eq!(r.slots.len(), 10);
+        assert_eq!(r.participants.len(), 10);
+    }
+
+    #[test]
+    fn parse_unclosed_section_bracket() {
+        let text = "[slots\n\"A\" 1 2\n";
+        let r = parse(text);
+        assert!(!r.errors.is_empty());
+        assert!(r.errors[0].message.contains("Unclosed"));
     }
 }

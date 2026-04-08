@@ -1,6 +1,9 @@
 use actix_web::{HttpResponse, web};
+use std::future::Future;
 use wish_shared::*;
 
+use crate::db::Db;
+use crate::email::ResendClient;
 use crate::{AppState, gen_id};
 
 // ── Create event ───────────────────────────────────────────────────
@@ -8,19 +11,87 @@ use crate::{AppState, gen_id};
 const MAX_SLOTS: usize = 100;
 const MAX_PARTICIPANTS: usize = 1000;
 
+fn get_sorted_participants(db: &Db, event: &Event) -> Vec<Participant> {
+    let mut participants: Vec<Participant> = db
+        .participants
+        .iter()
+        .filter(|p| event.participants.contains(&p.id))
+        .cloned()
+        .collect();
+    participants.sort_by(|a, b| a.mail.cmp(&b.mail));
+    participants
+}
+
+// ── Shared email-sending loop ─────────────────────────────────────
+
+struct OutgoingEmail {
+    to: String,
+    subject: String,
+    html: String,
+    text: String,
+}
+
+/// Send a batch of emails, broadcasting progress over the WebSocket channel.
+///
+/// `total` is the denominator shown in progress messages (may exceed
+/// `emails.len()` when the caller sends extra emails after this returns).
+///
+/// `on_result` is called after each send attempt with the email index and
+/// whether it succeeded; callers use it to update participant status in the DB.
+async fn send_emails<F, Fut>(
+    resend: ResendClient,
+    broadcast_tx: tokio::sync::broadcast::Sender<String>,
+    emails: Vec<OutgoingEmail>,
+    total: usize,
+    on_result: F,
+) -> (usize, Vec<String>)
+where
+    F: Fn(usize, bool) -> Fut,
+    Fut: Future<Output = ()>,
+{
+    let mut sent = 0usize;
+    let mut errors = Vec::new();
+
+    for (i, email) in emails.iter().enumerate() {
+        match resend
+            .send(&email.to, &email.subject, &email.html, &email.text)
+            .await
+        {
+            Ok(()) => {
+                sent += 1;
+                on_result(i, true).await;
+            }
+            Err(e) => {
+                errors.push(format!("{}: {e}", email.to));
+                on_result(i, false).await;
+            }
+        }
+
+        let msg = WsMsg::MailProgress {
+            sent,
+            total,
+            errors: errors.clone(),
+        };
+        let _ = broadcast_tx.send(serde_json::to_string(&msg).unwrap());
+    }
+
+    (sent, errors)
+}
+
 pub async fn create_event(
     state: web::Data<AppState>,
     body: web::Json<CreateEventRequest>,
 ) -> HttpResponse {
     if body.slots.len() > MAX_SLOTS {
-        return HttpResponse::BadRequest().json(serde_json::json!({"error": "too many slots (max 100)"}));
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "too many slots (max 100)"}));
     }
     if body.mails.len() > MAX_PARTICIPANTS {
-        return HttpResponse::BadRequest().json(serde_json::json!({"error": "too many participants (max 1000)"}));
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "too many participants (max 1000)"}));
     }
 
     let base_url = state.config.base_url.clone();
-    let resend = state.resend.clone();
 
     let event_id = state.with_db_save(|db| {
         let event_id = gen_id();
@@ -59,6 +130,7 @@ pub async fn create_event(
     });
 
     // Send admin confirmation email in background
+    let resend = state.resend.clone();
     let admin_mail = body.admin_mail.clone();
     let event_name = body.name.clone();
     let eid = event_id.clone();
@@ -92,28 +164,18 @@ pub async fn create_event(
 
 // ── Admin data ─────────────────────────────────────────────────────
 
-pub async fn get_admin_data(
-    state: web::Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
+pub async fn get_admin_data(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
     let event_id = path.into_inner();
     state.with_db(|db| {
         let event = match db.events.iter().find(|e| e.id == event_id) {
             Some(e) => e,
             None => return HttpResponse::NotFound().finish(),
         };
-        let mut participants: Vec<Participant> = db
-            .participants
-            .iter()
-            .filter(|p| event.participants.contains(&p.id))
-            .cloned()
-            .collect();
-        participants.sort_by(|a, b| a.mail.cmp(&b.mail));
 
         HttpResponse::Ok().json(AdminData {
             name: event.name.clone(),
             slots: event.slots.clone(),
-            participants,
+            participants: get_sorted_participants(db, event),
         })
     })
 }
@@ -128,10 +190,12 @@ pub async fn set_admin_data(
     let event_id = path.into_inner();
 
     if body.slots.len() > MAX_SLOTS {
-        return HttpResponse::BadRequest().json(serde_json::json!({"error": "too many slots (max 100)"}));
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "too many slots (max 100)"}));
     }
     if body.participants.len() > MAX_PARTICIPANTS {
-        return HttpResponse::BadRequest().json(serde_json::json!({"error": "too many participants (max 1000)"}));
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "too many participants (max 1000)"}));
     }
 
     // Validate
@@ -203,9 +267,9 @@ pub async fn set_admin_data(
 
         // Clean up removed participants
         let old_ids = std::mem::replace(&mut event.participants, new_participant_ids.clone());
-        db.participants.retain(|p| {
-            p.event != event_id || new_participant_ids.contains(&p.id)
-        });
+        let _ = event;
+        db.participants
+            .retain(|p| p.event != event_id || new_participant_ids.contains(&p.id));
         let removed = old_ids.len()
             - old_ids
                 .iter()
@@ -215,19 +279,11 @@ pub async fn set_admin_data(
             log::info!("Removed {removed} stale participants from event {event_id}");
         }
 
-        // Build fresh AdminData response
-        let mut participants: Vec<Participant> = db
-            .participants
-            .iter()
-            .filter(|p| event.participants.contains(&p.id))
-            .cloned()
-            .collect();
-        participants.sort_by(|a, b| a.mail.cmp(&b.mail));
-
+        let event = db.events.iter().find(|e| e.id == event_id).unwrap();
         Some(AdminData {
             name: event.name.clone(),
             slots: event.slots.clone(),
-            participants,
+            participants: get_sorted_participants(db, event),
         })
     });
 
@@ -262,12 +318,10 @@ pub async fn set_admin_data(
         let safe_admin = escape_html(&info.admin_mail);
         let safe_message = escape_html(&info.event_message);
 
-        let state_ref = state.clone();
-        tokio::spawn(async move {
-            let mut sent = 0usize;
-            let mut errors = Vec::new();
-
-            for (pid, mail, status) in &to_send {
+        let pids: Vec<String> = to_send.iter().map(|(pid, _, _)| pid.clone()).collect();
+        let emails: Vec<OutgoingEmail> = to_send
+            .iter()
+            .map(|(pid, mail, status)| {
                 let wish_url = format!("{}/wish?{pid}", info.base_url);
                 let (html, text) = if status.as_i32() <= 0 {
                     (
@@ -304,34 +358,34 @@ pub async fn set_admin_data(
                         ),
                     )
                 };
+                OutgoingEmail {
+                    to: mail.clone(),
+                    subject: format!("Wish: {}", info.event_name),
+                    html,
+                    text,
+                }
+            })
+            .collect();
 
-                let new_status = match resend
-                    .send(mail, &format!("Wish: {}", info.event_name), &html, &text)
-                    .await
-                {
-                    Ok(()) => {
-                        sent += 1;
+        let state_ref = state.clone();
+        tokio::spawn(async move {
+            send_emails(resend, broadcast_tx, emails, total, |i, ok| {
+                let state_ref = state_ref.clone();
+                let pid = pids[i].clone();
+                async move {
+                    let new_status = if ok {
                         ParticipantStatus::Mailed
-                    }
-                    Err(e) => {
-                        errors.push(format!("{mail}: {e}"));
+                    } else {
                         ParticipantStatus::MailError
-                    }
-                };
-
-                state_ref.with_db_save(|db| {
-                    if let Some(p) = db.participants.iter_mut().find(|p| p.id == *pid) {
-                        p.status = new_status;
-                    }
-                });
-
-                let msg = WsMsg::MailProgress {
-                    sent,
-                    total,
-                    errors: errors.clone(),
-                };
-                let _ = broadcast_tx.send(serde_json::to_string(&msg).unwrap());
-            }
+                    };
+                    state_ref.with_db_save(|db| {
+                        if let Some(p) = db.participants.iter_mut().find(|p| p.id == pid) {
+                            p.status = new_status;
+                        }
+                    });
+                }
+            })
+            .await;
         });
     }
 
@@ -349,21 +403,21 @@ struct EventInfo {
 
 fn get_event_info(state: &AppState, event_id: &str) -> Option<EventInfo> {
     state.with_db(|db| {
-        db.events.iter().find(|e| e.id == event_id).map(|event| EventInfo {
-            base_url: event.url.clone(),
-            admin_mail: event.admin_mail.clone(),
-            event_name: event.name.clone(),
-            event_message: event.message.clone(),
-        })
+        db.events
+            .iter()
+            .find(|e| e.id == event_id)
+            .map(|event| EventInfo {
+                base_url: event.url.clone(),
+                admin_mail: event.admin_mail.clone(),
+                event_name: event.name.clone(),
+                event_message: event.message.clone(),
+            })
     })
 }
 
 // ── Send reminders ─────────────────────────────────────────────────
 
-pub async fn send_reminders(
-    state: web::Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
+pub async fn send_reminders(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
     let event_id = path.into_inner();
     let resend = state.resend.clone();
 
@@ -388,48 +442,46 @@ pub async fn send_reminders(
     let broadcast_tx = state.get_broadcast(&event_id);
     let safe_name = escape_html(&info.event_name);
 
+    let pids: Vec<String> = to_remind.iter().map(|(pid, _)| pid.clone()).collect();
+    let emails: Vec<OutgoingEmail> = to_remind
+        .iter()
+        .map(|(pid, mail)| {
+            let wish_url = format!("{}/wish?{pid}", info.base_url);
+            OutgoingEmail {
+                to: mail.clone(),
+                subject: format!("Wish: {}", info.event_name),
+                html: format!(
+                    "<p>Hi,</p>\
+                     <p>Don't forget to fill <a href=\"{wish_url}\">your wish</a> for the event <strong>{safe_name}</strong>.</p>\
+                     <p>Have a nice day,<br />The Wish team</p>"
+                ),
+                text: format!(
+                    "Hi,\n\
+                     Don't forget to fill your wish for the event {}.\n\
+                     {wish_url}\n\n\
+                     Have a nice day,\nThe Wish team",
+                    info.event_name
+                ),
+            }
+        })
+        .collect();
+
     let state_ref = state.clone();
     tokio::spawn(async move {
-        let mut sent = 0usize;
-        let mut errors = Vec::new();
-
-        for (pid, mail) in &to_remind {
-            let wish_url = format!("{}/wish?{pid}", info.base_url);
-            let html = format!(
-                "<p>Hi,</p>\
-                 <p>Don't forget to fill <a href=\"{wish_url}\">your wish</a> for the event <strong>{safe_name}</strong>.</p>\
-                 <p>Have a nice day,<br />The Wish team</p>"
-            );
-            let text = format!(
-                "Hi,\n\
-                 Don't forget to fill your wish for the event {}.\n\
-                 {wish_url}\n\n\
-                 Have a nice day,\nThe Wish team",
-                info.event_name
-            );
-
-            match resend
-                .send(mail, &format!("Wish: {}", info.event_name), &html, &text)
-                .await
-            {
-                Ok(()) => sent += 1,
-                Err(e) => {
-                    errors.push(format!("{mail}: {e}"));
+        send_emails(resend, broadcast_tx, emails, total, |i, ok| {
+            let state_ref = state_ref.clone();
+            let pid = pids[i].clone();
+            async move {
+                if !ok {
                     state_ref.with_db_save(|db| {
-                        if let Some(p) = db.participants.iter_mut().find(|p| p.id == *pid) {
+                        if let Some(p) = db.participants.iter_mut().find(|p| p.id == pid) {
                             p.status = ParticipantStatus::MailError;
                         }
                     });
                 }
             }
-
-            let msg = WsMsg::MailProgress {
-                sent,
-                total,
-                errors: errors.clone(),
-            };
-            let _ = broadcast_tx.send(serde_json::to_string(&msg).unwrap());
-        }
+        })
+        .await;
     });
 
     HttpResponse::Ok().json(SendMailsResponse { total })
@@ -455,94 +507,64 @@ pub async fn send_results(
     let broadcast_tx = state.get_broadcast(&event_id);
     let safe_name = escape_html(&info.event_name);
 
-    tokio::spawn(async move {
-        let mut sent = 0usize;
-        let mut errors = Vec::new();
-
-        for entry in &results {
+    // Build per-participant result emails + admin summary as last entry
+    let mut emails: Vec<OutgoingEmail> = results
+        .iter()
+        .map(|entry| {
             let safe_slot = escape_html(&entry.slot);
-            let html = format!(
-                "<p>Hi,</p>\
-                 <p>You have been put in the slot <strong>{safe_slot}</strong> for the event <strong>{safe_name}</strong>.</p>\
-                 <p>Have a nice day,<br />The Wish team</p>"
-            );
-            let text = format!(
-                "Hi,\n\
-                 You have been put in the slot {} for the event {}.\n\n\
-                 Have a nice day,\nThe Wish team",
-                entry.slot, info.event_name
-            );
-
-            match resend
-                .send(
-                    &entry.mail,
-                    &format!("Wish: {}", info.event_name),
-                    &html,
-                    &text,
-                )
-                .await
-            {
-                Ok(()) => sent += 1,
-                Err(e) => errors.push(format!("{}: {e}", entry.mail)),
+            OutgoingEmail {
+                to: entry.mail.clone(),
+                subject: format!("Wish: {}", info.event_name),
+                html: format!(
+                    "<p>Hi,</p>\
+                     <p>You have been put in the slot <strong>{safe_slot}</strong> for the event <strong>{safe_name}</strong>.</p>\
+                     <p>Have a nice day,<br />The Wish team</p>"
+                ),
+                text: format!(
+                    "Hi,\n\
+                     You have been put in the slot {} for the event {}.\n\n\
+                     Have a nice day,\nThe Wish team",
+                    entry.slot, info.event_name
+                ),
             }
+        })
+        .collect();
 
-            let msg = WsMsg::MailProgress {
-                sent,
-                total,
-                errors: errors.clone(),
-            };
-            let _ = broadcast_tx.send(serde_json::to_string(&msg).unwrap());
-        }
-
-        // Send admin summary
-        let rows: String = results
-            .iter()
-            .map(|r| {
-                format!(
-                    "<tr><td>{}</td><td>{}</td></tr>",
-                    escape_html(&r.mail),
-                    escape_html(&r.slot)
-                )
-            })
-            .collect();
-        let text_rows: String = results
-            .iter()
-            .map(|r| format!("{}  {}\n", r.mail, r.slot))
-            .collect();
-
-        let html = format!(
+    // Admin summary email
+    let rows: String = results
+        .iter()
+        .map(|r| {
+            format!(
+                "<tr><td>{}</td><td>{}</td></tr>",
+                escape_html(&r.mail),
+                escape_html(&r.slot)
+            )
+        })
+        .collect();
+    let text_rows: String = results
+        .iter()
+        .map(|r| format!("{}  {}\n", r.mail, r.slot))
+        .collect();
+    emails.push(OutgoingEmail {
+        to: info.admin_mail.clone(),
+        subject: format!("Wish: {}", info.event_name),
+        html: format!(
             "<p>Hi,</p>\
              <p>The following information have been sent to the participants of the event <strong>{safe_name}</strong>.</p>\
              <table><tr><th>mail</th><th>slot</th></tr>{rows}</table>\
              <p>Have a nice day,<br />The Wish team</p>"
-        );
-        let text = format!(
+        ),
+        text: format!(
             "Hi,\n\
              The following information have been sent to the participants of the event {}.\n\n\
              {text_rows}\n\
              Have a nice day,\nThe Wish team",
             info.event_name
-        );
+        ),
+    });
 
-        match resend
-            .send(
-                &info.admin_mail,
-                &format!("Wish: {}", info.event_name),
-                &html,
-                &text,
-            )
-            .await
-        {
-            Ok(()) => sent += 1,
-            Err(e) => errors.push(format!("{}: {e}", info.admin_mail)),
-        }
-
-        let msg = WsMsg::MailProgress {
-            sent,
-            total,
-            errors,
-        };
-        let _ = broadcast_tx.send(serde_json::to_string(&msg).unwrap());
+    tokio::spawn(async move {
+        send_emails(resend, broadcast_tx, emails, total, |_i, _ok| async {}).await;
     });
 
     HttpResponse::Ok().json(SendMailsResponse { total })
@@ -550,10 +572,7 @@ pub async fn send_results(
 
 // ── Wish endpoints ─────────────────────────────────────────────────
 
-pub async fn get_wish(
-    state: web::Data<AppState>,
-    path: web::Path<String>,
-) -> HttpResponse {
+pub async fn get_wish(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
     let pid = path.into_inner();
     state.with_db_save(|db| {
         let participant = match db.participants.iter_mut().find(|p| p.id == pid) {
@@ -592,8 +611,7 @@ pub async fn set_wish(
     let pid = path.into_inner();
 
     if !wish_shared::is_fair_wish(&body.wish) {
-        return HttpResponse::BadRequest()
-            .json(serde_json::json!({"error": "unfair wish"}));
+        return HttpResponse::BadRequest().json(serde_json::json!({"error": "unfair wish"}));
     }
 
     let event_id = state.with_db_save(|db| {

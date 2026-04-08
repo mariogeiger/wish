@@ -4,6 +4,13 @@ use wish_shared::{CreateEventRequest, CreateEventResponse, Slot};
 use crate::api;
 use crate::components::feedback::{ToastContainer, ToastKind, add_toast};
 
+fn split_emails(s: &str) -> Vec<String> {
+    s.split([',', '\n', ';'])
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 #[component]
 pub fn HomePage() -> impl IntoView {
     let (name, set_name) = signal(String::new());
@@ -37,11 +44,7 @@ pub fn HomePage() -> impl IntoView {
         let message_val = message.get();
         let slots_val = slots.get();
 
-        let mails: Vec<String> = mails_val
-            .split([',', '\n', ';'])
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+        let mails = split_emails(&mails_val);
 
         if name_val.is_empty() {
             add_toast(&set_toasts, "Error", "Activity name is required", ToastKind::Error);
@@ -112,9 +115,7 @@ pub fn HomePage() -> impl IntoView {
                     <input id="name" type="text"
                         prop:value=move || name.get()
                         on:input=move |ev| {
-                            use wasm_bindgen::JsCast;
-                            let target: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
-                            set_name.set(target.value());
+                            set_name.set(crate::input_value(&ev));
                         }
                     />
                 </div>
@@ -123,9 +124,7 @@ pub fn HomePage() -> impl IntoView {
                     <input id="nslots" type="number" min="1" max="100" step="1"
                         prop:value=move || num_slots.get().to_string()
                         on:input=move |ev| {
-                            use wasm_bindgen::JsCast;
-                            let target: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
-                            if let Ok(v) = target.value().parse::<u32>() {
+                            if let Ok(v) = crate::input_value(&ev).parse::<u32>() {
                                 if v >= 1 && v <= 100 {
                                     set_num_slots.set(v);
                                 }
@@ -150,17 +149,14 @@ pub fn HomePage() -> impl IntoView {
                             <input type="text" placeholder=format!("Slot {}", i + 1)
                                 prop:value=name
                                 on:input=move |ev| {
-                                    use wasm_bindgen::JsCast;
-                                    let target: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
-                                    set_slots.update(|s| if i < s.len() { s[i].0 = target.value(); });
+                                    let val = crate::input_value(&ev);
+                                    set_slots.update(|s| if i < s.len() { s[i].0 = val; });
                                 }
                             />
                             <input type="number" min="0" max="100" step="1"
                                 prop:value=vmin.to_string()
                                 on:input=move |ev| {
-                                    use wasm_bindgen::JsCast;
-                                    let target: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
-                                    if let Ok(v) = target.value().parse::<u32>() {
+                                    if let Ok(v) = crate::input_value(&ev).parse::<u32>() {
                                         set_slots.update(|s| if i < s.len() { s[i].1 = v; });
                                     }
                                 }
@@ -168,9 +164,7 @@ pub fn HomePage() -> impl IntoView {
                             <input type="number" min="0" max="100" step="1"
                                 prop:value=vmax.to_string()
                                 on:input=move |ev| {
-                                    use wasm_bindgen::JsCast;
-                                    let target: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
-                                    if let Ok(v) = target.value().parse::<u32>() {
+                                    if let Ok(v) = crate::input_value(&ev).parse::<u32>() {
                                         set_slots.update(|s| if i < s.len() { s[i].2 = v; });
                                     }
                                 }
@@ -185,9 +179,7 @@ pub fn HomePage() -> impl IntoView {
                 <input id="admin_mail" type="email" placeholder="your@email.com"
                     prop:value=move || admin_mail.get()
                     on:input=move |ev| {
-                        use wasm_bindgen::JsCast;
-                        let target: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
-                        set_admin_mail.set(target.value());
+                        set_admin_mail.set(crate::input_value(&ev));
                     }
                 />
             </div>
@@ -197,18 +189,12 @@ pub fn HomePage() -> impl IntoView {
                 <textarea id="mails" placeholder="first@mail, second@mail, ..."
                     prop:value=move || mails_text.get()
                     on:input=move |ev| {
-                        use wasm_bindgen::JsCast;
-                        let target: web_sys::HtmlTextAreaElement = ev.target().unwrap().unchecked_into();
-                        set_mails_text.set(target.value());
+                        set_mails_text.set(crate::input_value(&ev));
                     }
                 />
                 <div class="muted">
                     {move || {
-                        let count = mails_text.get()
-                            .split([',', '\n', ';'])
-                            .map(|s| s.trim())
-                            .filter(|s| !s.is_empty())
-                            .count();
+                        let count = split_emails(&mails_text.get()).len();
                         format!("{count} participant(s)")
                     }}
                 </div>
@@ -219,9 +205,7 @@ pub fn HomePage() -> impl IntoView {
                 <textarea id="message"
                     prop:value=move || message.get()
                     on:input=move |ev| {
-                        use wasm_bindgen::JsCast;
-                        let target: web_sys::HtmlTextAreaElement = ev.target().unwrap().unchecked_into();
-                        set_message.set(target.value());
+                        set_message.set(crate::input_value(&ev));
                     }
                 />
             </div>

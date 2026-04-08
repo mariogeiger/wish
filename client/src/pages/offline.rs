@@ -1,9 +1,8 @@
 use leptos::prelude::*;
 
-use crate::components::editor::Editor;
+use crate::components::editor::{Editor, highlight};
 use crate::components::feedback::{ToastContainer, ToastKind, add_toast};
 use crate::hungarian;
-use crate::parse;
 
 const DEFAULT_TEXT: &str = r#"[slots]
 "Monday morning"    0 10
@@ -23,62 +22,21 @@ pub fn OfflinePage() -> impl IntoView {
     let (results_text, set_results_text) = signal(String::new());
 
     let on_compute = move |_| {
-        let text = editor_text.get();
-        let parsed = parse::parse(&text);
-
-        if !parsed.errors.is_empty() {
-            add_toast(
-                &set_toasts,
-                "Parse errors",
-                &parsed
-                    .errors
-                    .iter()
-                    .map(|e| format!("Line {}: {}", e.line + 1, e.message))
-                    .collect::<Vec<_>>()
-                    .join("<br/>"),
-                ToastKind::Error,
-            );
-            return;
-        }
-
-        let slots_data: Vec<(u32, u32)> =
-            parsed.slots.iter().map(|s| (s.vmin, s.vmax)).collect();
-        let n = parsed.participants.len();
-
-        // Shuffle permutation
-        let perm: Vec<usize> = {
-            let mut p: Vec<usize> = (0..n).collect();
-            for i in (1..p.len()).rev() {
-                let j = (js_sys::Math::random() * (i + 1) as f64) as usize;
-                p.swap(i, j);
+        match hungarian::compute_and_format(&editor_text.get()) {
+            Ok(text) => set_results_text.set(text),
+            Err(errors) => {
+                add_toast(
+                    &set_toasts,
+                    "Parse errors",
+                    &errors
+                        .iter()
+                        .map(|e| format!("Line {}: {}", e.line + 1, e.message))
+                        .collect::<Vec<_>>()
+                        .join("<br/>"),
+                    ToastKind::Error,
+                );
             }
-            p
-        };
-
-        let wishes: Vec<Vec<i32>> = parsed.participants.iter().map(|p| p.wish.clone()).collect();
-
-        let mut permuted_wishes = vec![Vec::new(); n];
-        for (i, &pi) in perm.iter().enumerate() {
-            permuted_wishes[pi] = wishes[i].clone();
         }
-
-        let cost = hungarian::build_cost_matrix(&permuted_wishes, &slots_data, n);
-        let assignment = hungarian::hungarian(&cost);
-        let slot_indices = hungarian::assignment_to_slots(&assignment, &slots_data, n);
-
-        let mut result = vec![0usize; n];
-        for i in 0..n {
-            result[i] = slot_indices[perm[i]];
-        }
-
-        let participants_for_results: Vec<(String, Vec<i32>)> = parsed
-            .participants
-            .iter()
-            .map(|p| (p.mail.clone(), p.wish.clone()))
-            .collect();
-
-        let text = parse::format_results(&parsed.slots, &participants_for_results, &result);
-        set_results_text.set(text);
     };
 
     view! {
@@ -100,8 +58,12 @@ pub fn OfflinePage() -> impl IntoView {
             </div>
 
             <h3>"Assignment"</h3>
-            <textarea class="editor-area results-area" readonly
-                prop:value=move || results_text.get()
+            <pre
+                class="editor-area results-area"
+                inner_html=move || {
+                    let t = results_text.get();
+                    if t.is_empty() { String::new() } else { highlight(&t) }
+                }
             />
         </div>
     }

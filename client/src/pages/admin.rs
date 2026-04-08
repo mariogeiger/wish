@@ -185,54 +185,12 @@ pub fn AdminPage(key: String) -> impl IntoView {
     };
 
     let on_compute = move |_| {
-        let text = editor_text.get();
-        let parsed = parse::parse(&text);
-
-        if !parsed.errors.is_empty() {
-            add_toast(&set_toasts, "Parse errors", "Fix errors before computing.", ToastKind::Error);
-            return;
-        }
-
-        let slots_data: Vec<(u32, u32)> =
-            parsed.slots.iter().map(|s| (s.vmin, s.vmax)).collect();
-        let n = parsed.participants.len();
-
-        let perm: Vec<usize> = {
-            let mut p: Vec<usize> = (0..n).collect();
-            // Shuffle using js Math.random for simplicity in WASM
-            for i in (1..p.len()).rev() {
-                let j = (js_sys::Math::random() * (i + 1) as f64) as usize;
-                p.swap(i, j);
+        match hungarian::compute_and_format(&editor_text.get()) {
+            Ok(text) => set_results_text.set(text),
+            Err(_) => {
+                add_toast(&set_toasts, "Parse errors", "Fix errors before computing.", ToastKind::Error);
             }
-            p
-        };
-
-        let wishes: Vec<Vec<i32>> = parsed.participants.iter().map(|p| p.wish.clone()).collect();
-
-        // Build permuted cost matrix
-        let mut permuted_wishes = vec![Vec::new(); n];
-        for (i, &pi) in perm.iter().enumerate() {
-            permuted_wishes[pi] = wishes[i].clone();
         }
-
-        let cost = hungarian::build_cost_matrix(&permuted_wishes, &slots_data, n);
-        let assignment = hungarian::hungarian(&cost);
-        let slot_indices = hungarian::assignment_to_slots(&assignment, &slots_data, n);
-
-        // Un-permute
-        let mut result = vec![0usize; n];
-        for i in 0..n {
-            result[i] = slot_indices[perm[i]];
-        }
-
-        let participants_for_results: Vec<(String, Vec<i32>)> = parsed
-            .participants
-            .iter()
-            .map(|p| (p.mail.clone(), p.wish.clone()))
-            .collect();
-
-        let text = parse::format_results(&parsed.slots, &participants_for_results, &result);
-        set_results_text.set(text);
     };
 
     let key_results = key.clone();
@@ -251,8 +209,8 @@ pub fn AdminPage(key: String) -> impl IntoView {
                 continue;
             }
             // Extract two quoted strings: "mail" "slot name"
-            if let Some((mail, rest)) = extract_quoted(trimmed) {
-                if let Some((slot, _)) = extract_quoted(rest) {
+            if let Some((mail, rest)) = parse::parse_quoted_string(trimmed) {
+                if let Some((slot, _)) = parse::parse_quoted_string(rest) {
                     entries.push(ResultEntry {
                         mail: mail.to_string(),
                         slot: slot.to_string(),
@@ -340,12 +298,4 @@ pub fn AdminPage(key: String) -> impl IntoView {
             </div>
         </div>
     }
-}
-
-/// Extract first quoted string from text, return (content, rest after closing quote).
-fn extract_quoted(s: &str) -> Option<(&str, &str)> {
-    let start = s.find('"')?;
-    let after_open = &s[start + 1..];
-    let end = after_open.find('"')?;
-    Some((&after_open[..end], after_open[end + 1..].trim()))
 }

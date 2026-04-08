@@ -59,9 +59,7 @@ pub fn HistoryPage() -> impl IntoView {
                                 <input type="password"
                                     prop:value=move || password.get()
                                     on:input=move |ev| {
-                                        use wasm_bindgen::JsCast;
-                                        let target: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
-                                        set_password.set(target.value());
+                                        set_password.set(crate::input_value(&ev));
                                     }
                                     on:keydown=on_keydown
                                 />

@@ -41,9 +41,7 @@ pub fn WishSliders(
                                                 if i < w.len() { max_val - w[i] } else { max_val }
                                             }
                                             on:input=move |ev| {
-                                                use wasm_bindgen::JsCast;
-                                                let target: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
-                                                let slider_val: i32 = target.value().parse().unwrap_or(0);
+                                                let slider_val: i32 = crate::input_value(&ev).parse().unwrap_or(0);
                                                 let new_value = max_val - slider_val;
                                                 apply_fairness(i, new_value, &set_wish, n);
                                             }
@@ -164,5 +162,60 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn fairness_exhaustive_all_slots_all_transitions() {
+        // For every fair starting state (3 slots), try every transition on every slot
+        let n = 3;
+        let max_val = (n - 1) as i32;
+        for a in 0..=max_val {
+            for b in 0..=max_val {
+                for c in 0..=max_val {
+                    let start = vec![a, b, c];
+                    if !is_fair(&start) {
+                        continue;
+                    }
+                    for idx in 0..n {
+                        for new_val in 0..=max_val {
+                            let mut wish = start.clone();
+                            apply_fairness_vec(&mut wish, idx, new_val, n);
+                            assert!(
+                                is_fair(&wish),
+                                "unfair: start={start:?} idx={idx} new_val={new_val} → {wish:?}"
+                            );
+                            assert_eq!(wish[idx], new_val, "target slot not set correctly");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fairness_decrease_preserves_others() {
+        let mut wish = vec![0, 1, 2];
+        apply_fairness_vec(&mut wish, 1, 0, 3);
+        // Decreasing should never change other slots
+        assert_eq!(wish[0], 0);
+        assert_eq!(wish[1], 0);
+        assert_eq!(wish[2], 2);
+    }
+
+    #[test]
+    fn fairness_set_to_same_value_is_noop() {
+        let mut wish = vec![0, 1, 2];
+        apply_fairness_vec(&mut wish, 1, 1, 3);
+        assert_eq!(wish, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn fairness_two_slots() {
+        let mut wish = vec![0, 0];
+        apply_fairness_vec(&mut wish, 0, 1, 2);
+        assert!(is_fair(&wish));
+        assert_eq!(wish[0], 1);
+        // Only 1 slot can be >= 1 (n-v = 2-1 = 1), so other must be pushed to 0
+        assert_eq!(wish[1], 0);
     }
 }

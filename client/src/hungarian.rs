@@ -1,3 +1,58 @@
+use wish_shared::Slot;
+use crate::parse::{self, ParsedParticipant, ParseError};
+
+/// Run the full assignment pipeline: permute, build cost matrix, hungarian, un-permute.
+/// Returns slot indices per participant (same order as input).
+pub fn compute_assignment(slots: &[Slot], participants: &[ParsedParticipant]) -> Vec<usize> {
+    let slots_data: Vec<(u32, u32)> = slots.iter().map(|s| (s.vmin, s.vmax)).collect();
+    let n = participants.len();
+
+    let perm: Vec<usize> = {
+        let mut p: Vec<usize> = (0..n).collect();
+        for i in (1..p.len()).rev() {
+            let j = (js_sys::Math::random() * (i + 1) as f64) as usize;
+            p.swap(i, j);
+        }
+        p
+    };
+
+    let wishes: Vec<Vec<i32>> = participants.iter().map(|p| p.wish.clone()).collect();
+
+    let mut permuted_wishes = vec![Vec::new(); n];
+    for (i, &pi) in perm.iter().enumerate() {
+        permuted_wishes[pi] = wishes[i].clone();
+    }
+
+    let cost = build_cost_matrix(&permuted_wishes, &slots_data, n);
+    let assignment = hungarian(&cost);
+    let slot_indices = assignment_to_slots(&assignment, &slots_data, n);
+
+    let mut result = vec![0usize; n];
+    for i in 0..n {
+        result[i] = slot_indices[perm[i]];
+    }
+    result
+}
+
+/// Parse text, run assignment, and format results in one call.
+pub fn compute_and_format(text: &str) -> Result<String, Vec<ParseError>> {
+    let parsed = parse::parse(text);
+    if !parsed.errors.is_empty() {
+        return Err(parsed.errors);
+    }
+    let result = compute_assignment(&parsed.slots, &parsed.participants);
+    let participants_for_results: Vec<(String, Vec<i32>)> = parsed
+        .participants
+        .iter()
+        .map(|p| (p.mail.clone(), p.wish.clone()))
+        .collect();
+    Ok(parse::format_results(
+        &parsed.slots,
+        &participants_for_results,
+        &result,
+    ))
+}
+
 /// Hungarian algorithm for the assignment problem. O(n^3).
 /// Port of Kevin L. Stern's Java implementation (via Gerard Meier's JS port).
 ///
@@ -195,12 +250,9 @@ pub fn build_cost_matrix(
         let mut row = Vec::new();
         for (j, &(vmin, vmax)) in slots.iter().enumerate() {
             let c = (wish[j] * wish[j]) as f64;
-            for _ in 0..vmin {
-                row.push(c);
-            }
             let effective_vmax = vmax.min(num_participants as u32);
-            for _ in vmin..effective_vmax {
-                row.push(x + c);
+            for k in 0..effective_vmax {
+                row.push(if k < vmin { c } else { x + c });
             }
         }
         cost.push(row);
@@ -218,14 +270,17 @@ pub fn assignment_to_slots(
     for &a in assignment {
         let mut remaining = a;
         let mut slot_idx = slots.len().saturating_sub(1);
+        let mut found = false;
         for (j, &(_vmin, vmax)) in slots.iter().enumerate() {
             let effective_vmax = vmax.min(num_participants as u32) as i32;
             if remaining < effective_vmax {
                 slot_idx = j;
+                found = true;
                 break;
             }
             remaining -= effective_vmax;
         }
+        debug_assert!(found, "assignment index {} out of range for slot layout", a);
         result.push(slot_idx);
     }
     result
@@ -370,5 +425,178 @@ mod tests {
         let in_slot_1 = result.iter().filter(|&&s| s == 1).count();
         assert_eq!(in_slot_0, 2);
         assert_eq!(in_slot_1, 2);
+    }
+
+    // ── full pipeline with permutation (admin/offline flow) ────────
+
+    /// Helper: run the exact same pipeline as admin.rs/offline.rs on_compute,
+    /// but with a deterministic permutation instead of random.
+    fn run_assignment_pipeline(
+        wishes: &[Vec<i32>],
+        slots: &[(u32, u32)],
+        perm: &[usize],
+    ) -> Vec<usize> {
+        let n = wishes.len();
+
+        // Permute wishes (same logic as admin.rs:213-216 / offline.rs:60-63)
+        let mut permuted_wishes = vec![Vec::new(); n];
+        for (i, &pi) in perm.iter().enumerate() {
+            permuted_wishes[pi] = wishes[i].clone();
+        }
+
+        let cost = build_cost_matrix(&permuted_wishes, slots, n);
+        let assignment = hungarian(&cost);
+        let slot_indices = assignment_to_slots(&assignment, slots, n);
+
+        // Un-permute (same logic as admin.rs:223-226 / offline.rs:69-72)
+        let mut result = vec![0usize; n];
+        for i in 0..n {
+            result[i] = slot_indices[perm[i]];
+        }
+        result
+    }
+
+    #[test]
+    fn pipeline_with_identity_permutation() {
+        let wishes = vec![
+            vec![0, 1, 2], // prefers slot 0
+            vec![2, 0, 1], // prefers slot 1
+            vec![1, 2, 0], // prefers slot 2
+        ];
+        let slots = vec![(1, 1), (1, 1), (1, 1)];
+        let perm: Vec<usize> = (0..3).collect(); // identity
+        let result = run_assignment_pipeline(&wishes, &slots, &perm);
+        assert_eq!(result, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn pipeline_with_reversed_permutation() {
+        let wishes = vec![
+            vec![0, 1, 2], // prefers slot 0
+            vec![2, 0, 1], // prefers slot 1
+            vec![1, 2, 0], // prefers slot 2
+        ];
+        let slots = vec![(1, 1), (1, 1), (1, 1)];
+        let perm = vec![2, 1, 0]; // reversed
+        let result = run_assignment_pipeline(&wishes, &slots, &perm);
+        // Same optimal assignment regardless of permutation
+        assert_eq!(result, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn pipeline_permutation_does_not_change_optimal_result() {
+        // All permutations of 3 participants should yield the same result
+        let wishes = vec![
+            vec![0, 2], // prefers slot 0
+            vec![2, 0], // prefers slot 1
+        ];
+        let slots = vec![(1, 1), (1, 1)];
+
+        let perms = vec![vec![0, 1], vec![1, 0]];
+        for perm in &perms {
+            let result = run_assignment_pipeline(&wishes, &slots, perm);
+            assert_eq!(result, vec![0, 1], "failed with perm {:?}", perm);
+        }
+    }
+
+    #[test]
+    fn pipeline_respects_vmin_with_permutation() {
+        // 4 participants, 2 slots with vmin=2 each
+        // Everyone prefers slot 0, but vmin forces 2 into each
+        let wishes = vec![
+            vec![0, 1],
+            vec![0, 1],
+            vec![0, 2],
+            vec![0, 2],
+        ];
+        let slots = vec![(2, 2), (2, 2)];
+        let perm = vec![3, 1, 0, 2]; // arbitrary permutation
+        let result = run_assignment_pipeline(&wishes, &slots, &perm);
+        let in_slot_0 = result.iter().filter(|&&s| s == 0).count();
+        let in_slot_1 = result.iter().filter(|&&s| s == 1).count();
+        assert_eq!(in_slot_0, 2);
+        assert_eq!(in_slot_1, 2);
+    }
+
+    #[test]
+    fn pipeline_asymmetric_slots() {
+        // 3 participants, slot 0 holds 1, slot 1 holds 2
+        let wishes = vec![
+            vec![0, 1], // prefers slot 0
+            vec![1, 0], // prefers slot 1
+            vec![1, 0], // prefers slot 1
+        ];
+        let slots = vec![(1, 1), (2, 2)];
+        let perm = vec![2, 0, 1];
+        let result = run_assignment_pipeline(&wishes, &slots, &perm);
+        // Participant 0 gets slot 0 (their preference), 1 and 2 get slot 1
+        assert_eq!(result[0], 0);
+        assert_eq!(result.iter().filter(|&&s| s == 0).count(), 1);
+        assert_eq!(result.iter().filter(|&&s| s == 1).count(), 2);
+    }
+
+    #[test]
+    fn pipeline_single_participant() {
+        let wishes = vec![vec![0]];
+        let slots = vec![(1, 1)];
+        let perm = vec![0];
+        let result = run_assignment_pipeline(&wishes, &slots, &perm);
+        assert_eq!(result, vec![0]);
+    }
+
+    #[test]
+    fn pipeline_all_same_preference() {
+        // 3 participants all rank slots identically
+        let wishes = vec![
+            vec![0, 1, 2],
+            vec![0, 1, 2],
+            vec![0, 1, 2],
+        ];
+        let slots = vec![(1, 1), (1, 1), (1, 1)];
+        let perm = vec![1, 2, 0];
+        let result = run_assignment_pipeline(&wishes, &slots, &perm);
+        // Each slot must get exactly 1 person
+        let mut counts = vec![0; 3];
+        for &s in &result {
+            counts[s] += 1;
+        }
+        assert_eq!(counts, vec![1, 1, 1]);
+        // And at least one should get their first choice
+        assert!(result.iter().any(|&s| s == 0));
+    }
+
+    // ── cost matrix edge cases ─────────────────────────────────────
+
+    #[test]
+    fn cost_matrix_single_slot() {
+        let wishes = vec![vec![3], vec![1]];
+        let slots = vec![(2, 2)];
+        let cost = build_cost_matrix(&wishes, &slots, 2);
+        assert_eq!(cost.len(), 2);
+        assert_eq!(cost[0].len(), 2); // vmax=2, so 2 columns
+        assert_eq!(cost[0][0], 9.0); // 3^2
+        assert_eq!(cost[1][0], 1.0); // 1^2
+    }
+
+    #[test]
+    fn cost_matrix_vmax_capped_by_participants() {
+        // vmax=100 but only 2 participants — effective_vmax = 2
+        let wishes = vec![vec![0], vec![1]];
+        let slots = vec![(1, 100)];
+        let cost = build_cost_matrix(&wishes, &slots, 2);
+        assert_eq!(cost[0].len(), 2); // min(100, 2) = 2 columns
+    }
+
+    #[test]
+    fn assignment_to_slots_with_vmin_vmax_spread() {
+        // 3 slots: vmin=1 vmax=3 each → 3+3+3 = 9 columns
+        let slots = vec![(1, 3), (1, 3), (1, 3)];
+        // Column layout: [s0_0, s0_1, s0_2, s1_0, s1_1, s1_2, s2_0, s2_1, s2_2]
+        assert_eq!(assignment_to_slots(&[0], &slots, 3), vec![0]); // col 0 → slot 0
+        assert_eq!(assignment_to_slots(&[2], &slots, 3), vec![0]); // col 2 → slot 0
+        assert_eq!(assignment_to_slots(&[3], &slots, 3), vec![1]); // col 3 → slot 1
+        assert_eq!(assignment_to_slots(&[5], &slots, 3), vec![1]); // col 5 → slot 1
+        assert_eq!(assignment_to_slots(&[6], &slots, 3), vec![2]); // col 6 → slot 2
+        assert_eq!(assignment_to_slots(&[8], &slots, 3), vec![2]); // col 8 → slot 2
     }
 }
