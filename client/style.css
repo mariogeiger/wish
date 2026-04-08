@@ -134,6 +134,57 @@ input[type="range"] { width: 100%; min-width: 120px; cursor: pointer; }
     white-space: pre;
 }
 
+.editor-wrap {
+    position: relative;
+    min-height: 300px;
+}
+
+.editor-wrap .editor-area,
+.editor-wrap .editor-highlight {
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    tab-size: 4;
+    white-space: pre;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin: 0;
+    width: 100%;
+    min-height: 300px;
+    overflow: auto;
+    word-wrap: normal;
+}
+
+.editor-wrap .editor-highlight {
+    position: absolute;
+    inset: 0;
+    background: #fff;
+    pointer-events: none;
+    color: transparent; /* fallback; spans carry actual colors */
+}
+
+.editor-wrap .editor-area {
+    position: relative;
+    color: transparent;
+    caret-color: var(--text);
+    background: transparent;
+    resize: vertical;
+    z-index: 1;
+}
+
+.editor-wrap .editor-area:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.2);
+}
+
+/* Highlight token colors */
+.hl-section  { color: #8250df; font-weight: 600; }
+.hl-comment  { color: #6a737d; font-style: italic; }
+.hl-string   { color: #0a3069; }
+.hl-number   { color: #0550ae; }
+
 .editor-errors {
     background: #fef0f0;
     border: 1px solid #fcc;

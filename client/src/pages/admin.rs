@@ -3,7 +3,7 @@ use wasm_bindgen::JsCast;
 use wish_shared::*;
 
 use crate::api;
-use crate::components::editor::Editor;
+use crate::components::editor::{Editor, highlight};
 use crate::components::feedback::{ToastContainer, ToastKind, add_toast};
 use crate::hungarian;
 use crate::parse;
@@ -327,8 +327,12 @@ pub fn AdminPage(key: String) -> impl IntoView {
             </div>
 
             <h3>"Assignment"</h3>
-            <textarea class="editor-area results-area" readonly
-                prop:value=move || results_text.get()
+            <pre
+                class="editor-area results-area"
+                inner_html=move || {
+                    let t = results_text.get();
+                    if t.is_empty() { String::new() } else { highlight(&t) }
+                }
             />
 
             <div class="btn-row">
