@@ -21,6 +21,15 @@ pub fn WishPage(key: String) -> impl IntoView {
                 Ok(d) => {
                     set_wish.set(d.wish.clone());
                     set_data.set(Some(d));
+
+                    // Delay marking visited so link-scanners that execute JS
+                    // but close the page quickly don't trigger a false visit.
+                    gloo_timers::future::TimeoutFuture::new(5000).await;
+                    let _ = api::post::<_, serde_json::Value>(
+                        &format!("/api/wish/{k}/visit"),
+                        &serde_json::json!({}),
+                    )
+                    .await;
                 }
                 Err(e) => {
                     add_toast(

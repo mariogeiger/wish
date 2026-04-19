@@ -49,6 +49,7 @@ pub fn AdminPage(key: String) -> impl IntoView {
         let ws_url = format!("{protocol}//{host}/api/events/{key_ws}/ws");
 
         if let Ok(ws) = web_sys::WebSocket::new(&ws_url) {
+            let key_refresh = key_ws.clone();
             let on_message = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::MessageEvent)>::new(
                 move |ev: web_sys::MessageEvent| {
                     if let Some(text) = ev.data().as_string() {
@@ -70,6 +71,21 @@ pub fn AdminPage(key: String) -> impl IntoView {
                                         msg.push_str(&format!("<br/>Error: {e}"));
                                     }
                                     add_toast(&set_toasts, "Mail status", &msg, kind);
+
+                                    if sent == total {
+                                        let key = key_refresh.clone();
+                                        wasm_bindgen_futures::spawn_local(async move {
+                                            if let Ok(data) = api::get::<AdminData>(&format!("/api/events/{key}")).await {
+                                                let participants: Vec<(String, Vec<i32>, ParticipantStatus, Option<String>)> = data
+                                                    .participants
+                                                    .iter()
+                                                    .map(|p| (p.mail.clone(), p.wish.clone(), p.status, Some(p.id.clone())))
+                                                    .collect();
+                                                set_editor_text.set(parse::to_editor_text(&data.slots, &participants));
+                                                set_event_name.set(data.name);
+                                            }
+                                        });
+                                    }
                                 }
                                 WsMsg::Feedback { title, html, msg_type } => {
                                     let kind = match msg_type.as_str() {
@@ -255,7 +271,6 @@ pub fn AdminPage(key: String) -> impl IntoView {
             <nav>
                 <a href="/">"Home"</a>
                 <a href="/help">"Help"</a>
-                <a href="/history">"History"</a>
             </nav>
 
             <h2>{move || event_name.get()}</h2>

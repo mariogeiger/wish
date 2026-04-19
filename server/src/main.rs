@@ -183,6 +183,10 @@ async fn main() -> std::io::Result<()> {
             // Wish endpoints
             .route("/api/wish/{pid}", web::get().to(handlers::get_wish))
             .route("/api/wish/{pid}", web::put().to(handlers::set_wish))
+            .route(
+                "/api/wish/{pid}/visit",
+                web::post().to(handlers::mark_wish_visited),
+            )
             // History
             .route("/api/history", web::post().to(handlers::get_history))
             // Static files (client dist)

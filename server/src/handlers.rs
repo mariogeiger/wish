@@ -589,11 +589,6 @@ pub async fn get_wish(state: web::Data<AppState>, path: web::Path<String>) -> Ht
             participant.wish = vec![0; event.slots.len()];
         }
 
-        // Mark as visited
-        if participant.status.as_i32() < 30 {
-            participant.status = ParticipantStatus::Visited;
-        }
-
         HttpResponse::Ok().json(WishData {
             name: event.name.clone(),
             mail: participant.mail.clone(),
@@ -601,6 +596,30 @@ pub async fn get_wish(state: web::Data<AppState>, path: web::Path<String>) -> Ht
             wish: participant.wish.clone(),
         })
     })
+}
+
+// Marked separately from get_wish so that link-scanners (which only do GET,
+// or which fetch but never POST) don't trigger a false "Visited" status.
+pub async fn mark_wish_visited(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    let pid = path.into_inner();
+    let found = state.with_db_save(|db| {
+        let participant = match db.participants.iter_mut().find(|p| p.id == pid) {
+            Some(p) => p,
+            None => return false,
+        };
+        if participant.status.as_i32() < 30 {
+            participant.status = ParticipantStatus::Visited;
+        }
+        true
+    });
+    if found {
+        HttpResponse::Ok().json(serde_json::json!({"ok": true}))
+    } else {
+        HttpResponse::NotFound().finish()
+    }
 }
 
 pub async fn set_wish(

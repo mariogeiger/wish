@@ -9,5 +9,5 @@ Live at https://wish.geiger.ink
 ## Rebuild and restart
 
 ```bash
-cargo build -p wish-server --release && trunk build --release --config client/Trunk.toml && systemctl --user restart wish
+cargo build -p wish-server --release && trunk build --release --config client/Trunk.toml && sudo launchctl kickstart -k system/ink.geiger.wish
 ```
