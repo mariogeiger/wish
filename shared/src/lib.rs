@@ -152,10 +152,16 @@ impl EmailTemplates {
     }
 }
 
-/// Variable names recognized by the template renderer and highlighted in the
-/// editor. Any `$word` token that matches one of these is substituted at send
-/// time; anything else renders literally.
+/// Variable names recognized by the template renderer. Any `$word` token that
+/// matches one of these is substituted at send time; anything else renders
+/// literally. For per-template availability (used by the editor highlighter),
+/// see `INVITE_VARS`, `UPDATE_VARS`, `REMINDER_VARS`, `RESULTS_VARS`.
 pub const TEMPLATE_VARIABLES: &[&str] = &["event_name", "admin_mail", "url", "slot"];
+
+pub const INVITE_VARS: &[&str] = &["event_name", "admin_mail", "url"];
+pub const UPDATE_VARS: &[&str] = &["event_name", "admin_mail", "url"];
+pub const REMINDER_VARS: &[&str] = &["event_name", "admin_mail", "url"];
+pub const RESULTS_VARS: &[&str] = &["event_name", "slot"];
 
 // English
 

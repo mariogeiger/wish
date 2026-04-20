@@ -373,28 +373,28 @@ pub fn AdminPage(key: String) -> impl IntoView {
                     {move || translations(lang.get()).admin_available_prefix}
                     "$event_name, $admin_mail, $url"
                 </p>
-                <TemplateEditor text=tpl_invite set_text=set_tpl_invite />
+                <TemplateEditor text=tpl_invite set_text=set_tpl_invite allowed=wish_shared::INVITE_VARS />
 
                 <h4>{move || translations(lang.get()).admin_update_heading}</h4>
                 <p class="muted">
                     {move || translations(lang.get()).admin_available_prefix}
                     "$event_name, $admin_mail, $url"
                 </p>
-                <TemplateEditor text=tpl_update set_text=set_tpl_update />
+                <TemplateEditor text=tpl_update set_text=set_tpl_update allowed=wish_shared::UPDATE_VARS />
 
                 <h4>{move || translations(lang.get()).admin_reminder_heading}</h4>
                 <p class="muted">
                     {move || translations(lang.get()).admin_available_prefix}
-                    "$event_name, $url"
+                    "$event_name, $admin_mail, $url"
                 </p>
-                <TemplateEditor text=tpl_reminder set_text=set_tpl_reminder />
+                <TemplateEditor text=tpl_reminder set_text=set_tpl_reminder allowed=wish_shared::REMINDER_VARS />
 
                 <h4>{move || translations(lang.get()).admin_results_heading}</h4>
                 <p class="muted">
                     {move || translations(lang.get()).admin_available_prefix}
                     "$event_name, $slot"
                 </p>
-                <TemplateEditor text=tpl_results set_text=set_tpl_results />
+                <TemplateEditor text=tpl_results set_text=set_tpl_results allowed=wish_shared::RESULTS_VARS />
             </details>
 
             <div class="btn-row">

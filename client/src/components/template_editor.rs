@@ -2,15 +2,15 @@ use leptos::prelude::*;
 use web_sys::HtmlElement;
 use wish_shared::{TemplateSpan, scan_template};
 
-/// Produce highlighted HTML for an email template: known `$name` tokens are
-/// wrapped in `<span class="hl-variable">`, everything else is HTML-escaped
-/// plain text. Unknown tokens like `$ur` render as literal text.
-pub fn highlight_template(text: &str) -> String {
+/// Produce highlighted HTML for an email template: `$name` tokens whose name
+/// appears in `allowed` are wrapped in `<span class="hl-variable">`; everything
+/// else is HTML-escaped plain text.
+pub fn highlight_template(text: &str, allowed: &[&str]) -> String {
     let mut html = String::with_capacity(text.len());
     scan_template(text, |span| match span {
         TemplateSpan::Text(t) => push_escaped(&mut html, t),
-        TemplateSpan::Var { raw, known, .. } => {
-            if known {
+        TemplateSpan::Var { raw, name, .. } => {
+            if allowed.contains(&name) {
                 html.push_str("<span class=\"hl-variable\">");
                 push_escaped(&mut html, raw);
                 html.push_str("</span>");
@@ -34,7 +34,11 @@ fn push_escaped(html: &mut String, s: &str) {
 }
 
 #[component]
-pub fn TemplateEditor(text: ReadSignal<String>, set_text: WriteSignal<String>) -> impl IntoView {
+pub fn TemplateEditor(
+    text: ReadSignal<String>,
+    set_text: WriteSignal<String>,
+    allowed: &'static [&'static str],
+) -> impl IntoView {
     let pre_ref = NodeRef::<leptos::html::Pre>::new();
     let textarea_ref = NodeRef::<leptos::html::Textarea>::new();
 
@@ -54,7 +58,7 @@ pub fn TemplateEditor(text: ReadSignal<String>, set_text: WriteSignal<String>) -
                 node_ref=pre_ref
                 aria-hidden="true"
                 inner_html=move || {
-                    let mut h = highlight_template(&text.get());
+                    let mut h = highlight_template(&text.get(), allowed);
                     h.push('\n');
                     h
                 }
