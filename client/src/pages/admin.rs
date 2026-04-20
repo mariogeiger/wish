@@ -66,87 +66,87 @@ pub fn AdminPage(key: String) -> impl IntoView {
             let key_refresh = key_ws.clone();
             let on_message = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::MessageEvent)>::new(
                 move |ev: web_sys::MessageEvent| {
-                    if let Some(text) = ev.data().as_string() {
-                        if let Ok(msg) = serde_json::from_str::<WsMsg>(&text) {
-                            match msg {
-                                WsMsg::NewWish { mail } => {
-                                    set_ws_banner.set(Some(format!(
-                                        "{mail} modified their wish. Reload to see changes."
-                                    )));
-                                }
-                                WsMsg::MailProgress {
-                                    sent,
-                                    total,
-                                    errors,
-                                    last_mail,
-                                } => {
-                                    let kind = if errors.is_empty() {
-                                        if sent == total {
-                                            ToastKind::Success
-                                        } else {
-                                            ToastKind::Info
-                                        }
-                                    } else {
-                                        ToastKind::Error
-                                    };
-                                    let mut msg = format!("{sent}/{total} mails sent");
-                                    if let Some(m) = &last_mail {
-                                        msg.push_str(&format!("<br/>Last: {m}"));
-                                    }
-                                    for e in &errors {
-                                        msg.push_str(&format!("<br/>Error: {e}"));
-                                    }
-                                    add_toast(&set_toasts, "Mail status", &msg, kind);
-
+                    if let Some(text) = ev.data().as_string()
+                        && let Ok(msg) = serde_json::from_str::<WsMsg>(&text)
+                    {
+                        match msg {
+                            WsMsg::NewWish { mail } => {
+                                set_ws_banner.set(Some(format!(
+                                    "{mail} modified their wish. Reload to see changes."
+                                )));
+                            }
+                            WsMsg::MailProgress {
+                                sent,
+                                total,
+                                errors,
+                                last_mail,
+                            } => {
+                                let kind = if errors.is_empty() {
                                     if sent == total {
-                                        let key = key_refresh.clone();
-                                        wasm_bindgen_futures::spawn_local(async move {
-                                            if let Ok(data) =
-                                                api::get::<AdminData>(&format!("/api/events/{key}"))
-                                                    .await
-                                            {
-                                                let participants: Vec<(
-                                                    String,
-                                                    Vec<i32>,
-                                                    ParticipantStatus,
-                                                    Option<String>,
-                                                )> = data
-                                                    .participants
-                                                    .iter()
-                                                    .map(|p| {
-                                                        (
-                                                            p.mail.clone(),
-                                                            p.wish.clone(),
-                                                            p.status,
-                                                            Some(p.id.clone()),
-                                                        )
-                                                    })
-                                                    .collect();
-                                                set_editor_text.set(parse::to_editor_text(
-                                                    &data.slots,
-                                                    &participants,
-                                                ));
-                                                set_event_name.set(data.name);
-                                                set_tpl_invite.set(data.templates.invite);
-                                                set_tpl_update.set(data.templates.update);
-                                                set_tpl_reminder.set(data.templates.reminder);
-                                                set_tpl_results.set(data.templates.results);
-                                            }
-                                        });
+                                        ToastKind::Success
+                                    } else {
+                                        ToastKind::Info
                                     }
+                                } else {
+                                    ToastKind::Error
+                                };
+                                let mut msg = format!("{sent}/{total} mails sent");
+                                if let Some(m) = &last_mail {
+                                    msg.push_str(&format!("<br/>Last: {m}"));
                                 }
-                                WsMsg::Feedback {
-                                    title,
-                                    html,
-                                    msg_type,
-                                } => {
-                                    let kind = match msg_type.as_str() {
-                                        "success" => ToastKind::Success,
-                                        "error" => ToastKind::Error,
-                                        _ => ToastKind::Info,
-                                    };
-                                    add_toast(&set_toasts, &title, &html, kind);
+                                for e in &errors {
+                                    msg.push_str(&format!("<br/>Error: {e}"));
                                 }
+                                add_toast(&set_toasts, "Mail status", &msg, kind);
+
+                                if sent == total {
+                                    let key = key_refresh.clone();
+                                    wasm_bindgen_futures::spawn_local(async move {
+                                        if let Ok(data) =
+                                            api::get::<AdminData>(&format!("/api/events/{key}"))
+                                                .await
+                                        {
+                                            let participants: Vec<(
+                                                String,
+                                                Vec<i32>,
+                                                ParticipantStatus,
+                                                Option<String>,
+                                            )> = data
+                                                .participants
+                                                .iter()
+                                                .map(|p| {
+                                                    (
+                                                        p.mail.clone(),
+                                                        p.wish.clone(),
+                                                        p.status,
+                                                        Some(p.id.clone()),
+                                                    )
+                                                })
+                                                .collect();
+                                            set_editor_text.set(parse::to_editor_text(
+                                                &data.slots,
+                                                &participants,
+                                            ));
+                                            set_event_name.set(data.name);
+                                            set_tpl_invite.set(data.templates.invite);
+                                            set_tpl_update.set(data.templates.update);
+                                            set_tpl_reminder.set(data.templates.reminder);
+                                            set_tpl_results.set(data.templates.results);
+                                        }
+                                    });
+                                }
+                            }
+                            WsMsg::Feedback {
+                                title,
+                                html,
+                                msg_type,
+                            } => {
+                                let kind = match msg_type.as_str() {
+                                    "success" => ToastKind::Success,
+                                    "error" => ToastKind::Error,
+                                    _ => ToastKind::Info,
+                                };
+                                add_toast(&set_toasts, &title, &html, kind);
                             }
                         }
                     }
@@ -295,13 +295,13 @@ pub fn AdminPage(key: String) -> impl IntoView {
                 continue;
             }
             // Extract two quoted strings: "mail" "slot name"
-            if let Some((mail, rest)) = parse::parse_quoted_string(trimmed) {
-                if let Some((slot, _)) = parse::parse_quoted_string(rest) {
-                    entries.push(ResultEntry {
-                        mail: mail.to_string(),
-                        slot: slot.to_string(),
-                    });
-                }
+            if let Some((mail, rest)) = parse::parse_quoted_string(trimmed)
+                && let Some((slot, _)) = parse::parse_quoted_string(rest)
+            {
+                entries.push(ResultEntry {
+                    mail: mail.to_string(),
+                    slot: slot.to_string(),
+                });
             }
         }
 

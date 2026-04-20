@@ -1,3 +1,7 @@
+// Hungarian algorithm uses intricate index math; iterator rewrites obscure
+// the algorithm and aren't worth it here.
+#![allow(clippy::needless_range_loop)]
+
 use crate::parse::{self, ParseError, ParsedParticipant};
 use wish_shared::Slot;
 
@@ -157,12 +161,12 @@ pub fn hungarian(cost_matrix: &[Vec<f64>]) -> Vec<i32> {
             let mut min_slack_job = 0;
 
             for j in 0..dim {
-                if parent_worker_by_committed_job[j] == -1 {
-                    if min_slack_value_by_job[j] < min_slack_value {
-                        min_slack_value = min_slack_value_by_job[j];
-                        min_slack_worker = min_slack_worker_by_job[j];
-                        min_slack_job = j;
-                    }
+                if parent_worker_by_committed_job[j] == -1
+                    && min_slack_value_by_job[j] < min_slack_value
+                {
+                    min_slack_value = min_slack_value_by_job[j];
+                    min_slack_worker = min_slack_worker_by_job[j];
+                    min_slack_job = j;
                 }
             }
 
@@ -545,7 +549,7 @@ mod tests {
         }
         assert_eq!(counts, vec![1, 1, 1]);
         // And at least one should get their first choice
-        assert!(result.iter().any(|&s| s == 0));
+        assert!(result.contains(&0));
     }
 
     // ── cost matrix edge cases ─────────────────────────────────────

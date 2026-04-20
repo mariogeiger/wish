@@ -65,7 +65,7 @@ fn apply_fairness(idx: usize, new_value: i32, set_wish: &WriteSignal<Vec<i32>>, 
 /// Apply fairness constraint when setting slot `idx` to `new_value`.
 /// Rule: when wishes are sorted ascending, wish[i] <= i for all i.
 /// This means at most (n - v) slots can have preference >= v.
-pub fn apply_fairness_vec(wish: &mut Vec<i32>, idx: usize, new_value: i32, n: usize) {
+pub fn apply_fairness_vec(wish: &mut [i32], idx: usize, new_value: i32, n: usize) {
     let old_value = wish[idx];
 
     // Move incrementally toward new_value, enforcing constraint at each step
@@ -78,9 +78,9 @@ pub fn apply_fairness_vec(wish: &mut Vec<i32>, idx: usize, new_value: i32, n: us
 
             if count > n - v as usize {
                 // Too many high values — push one other slot down
-                for i in 0..wish.len() {
-                    if i != idx && wish[i] == v {
-                        wish[i] = v - 1;
+                for (i, w) in wish.iter_mut().enumerate() {
+                    if i != idx && *w == v {
+                        *w = v - 1;
                         break;
                     }
                 }

@@ -138,11 +138,10 @@ pub fn HomePage() -> impl IntoView {
                     <input id="nslots" type="number" min="1" max="100" step="1"
                         prop:value=move || num_slots.get().to_string()
                         on:input=move |ev| {
-                            if let Ok(v) = crate::input_value(&ev).parse::<u32>() {
-                                if v >= 1 && v <= 100 {
+                            if let Ok(v) = crate::input_value(&ev).parse::<u32>()
+                                && (1..=100).contains(&v) {
                                     set_num_slots.set(v);
                                 }
-                            }
                         }
                     />
                 </div>

@@ -70,18 +70,19 @@ fn unix_secs_to_ymdh(secs: u64) -> (u64, u64, u64, u64) {
     let mut y = 1970u64;
     let mut remaining = days;
     loop {
-        let days_in_year = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) {
-            366
-        } else {
-            365
-        };
+        let days_in_year =
+            if y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400)) {
+                366
+            } else {
+                365
+            };
         if remaining < days_in_year {
             break;
         }
         remaining -= days_in_year;
         y += 1;
     }
-    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
     let month_days: [u64; 12] = [
         31,
         if leap { 29 } else { 28 },
@@ -101,5 +102,5 @@ fn unix_secs_to_ymdh(secs: u64) -> (u64, u64, u64, u64) {
         remaining -= month_days[m];
         m += 1;
     }
-    (y, (m + 1) as u64, (remaining + 1) as u64, hour)
+    (y, (m + 1) as u64, (remaining + 1), hour)
 }
