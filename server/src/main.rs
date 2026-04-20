@@ -189,6 +189,12 @@ async fn main() -> std::io::Result<()> {
             )
             // History
             .route("/api/history", web::post().to(handlers::get_history))
+            // Debug: send a user-defined email (hidden)
+            .route("/api/debug/auth", web::post().to(handlers::debug_auth))
+            .route(
+                "/api/debug/email",
+                web::post().to(handlers::debug_send_email),
+            )
             // Static files (client dist)
             .service(Files::new("/", "./client/dist").index_file("index.html"))
             // SPA fallback: serve index.html for client-side routes

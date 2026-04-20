@@ -71,6 +71,7 @@ where
             sent,
             total,
             errors: errors.clone(),
+            last_mail: Some(email.to.clone()),
         };
         let _ = broadcast_tx.send(serde_json::to_string(&msg).unwrap());
     }
@@ -693,6 +694,35 @@ pub async fn get_history(
         entries.sort_by(|a, b| b.creation_time.cmp(&a.creation_time));
         HttpResponse::Ok().json(entries)
     })
+}
+
+// ── Debug: send a user-defined email ───────────────────────────────
+
+pub async fn debug_auth(
+    state: web::Data<AppState>,
+    body: web::Json<HistoryRequest>,
+) -> HttpResponse {
+    if body.password != state.config.history_password {
+        return HttpResponse::Unauthorized().finish();
+    }
+    HttpResponse::Ok().json(serde_json::json!({"ok": true}))
+}
+
+pub async fn debug_send_email(
+    state: web::Data<AppState>,
+    body: web::Json<DebugEmailRequest>,
+) -> HttpResponse {
+    if body.password != state.config.history_password {
+        return HttpResponse::Unauthorized().finish();
+    }
+    match state
+        .resend
+        .send(&body.to, &body.subject, &body.html, &body.text)
+        .await
+    {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({"ok": true})),
+        Err(e) => HttpResponse::BadGateway().json(serde_json::json!({"error": e})),
+    }
 }
 
 // ── Health ──────────────────────────────────────────────────────────

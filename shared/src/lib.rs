@@ -165,6 +165,15 @@ pub struct SendMailsResponse {
     pub total: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebugEmailRequest {
+    pub password: String,
+    pub to: String,
+    pub subject: String,
+    pub html: String,
+    pub text: String,
+}
+
 // ── Utilities ──────────────────────────────────────────────────────
 
 /// Escape HTML special characters to prevent XSS in email templates.
@@ -369,14 +378,15 @@ mod tests {
 
     #[test]
     fn ws_msg_mail_progress_round_trip() {
-        let msg = WsMsg::MailProgress { sent: 3, total: 10, errors: vec!["fail@x".into()] };
+        let msg = WsMsg::MailProgress { sent: 3, total: 10, errors: vec!["fail@x".into()], last_mail: Some("ok@x".into()) };
         let json = serde_json::to_string(&msg).unwrap();
         let back: WsMsg = serde_json::from_str(&json).unwrap();
         match back {
-            WsMsg::MailProgress { sent, total, errors } => {
+            WsMsg::MailProgress { sent, total, errors, last_mail } => {
                 assert_eq!(sent, 3);
                 assert_eq!(total, 10);
                 assert_eq!(errors, vec!["fail@x"]);
+                assert_eq!(last_mail.as_deref(), Some("ok@x"));
             }
             _ => panic!("wrong variant"),
         }
@@ -389,6 +399,6 @@ mod tests {
 #[serde(tag = "type")]
 pub enum WsMsg {
     NewWish { mail: String },
-    MailProgress { sent: usize, total: usize, errors: Vec<String> },
+    MailProgress { sent: usize, total: usize, errors: Vec<String>, last_mail: Option<String> },
     Feedback { title: String, html: String, msg_type: String },
 }

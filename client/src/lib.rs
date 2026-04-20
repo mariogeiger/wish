@@ -34,6 +34,7 @@ fn App() -> impl IntoView {
                 "/admin" => view! { <pages::admin::AdminPage key=q /> }.into_any(),
                 "/offline" => view! { <pages::offline::OfflinePage /> }.into_any(),
                 "/history" => view! { <pages::history::HistoryPage /> }.into_any(),
+                "/email" => view! { <pages::email::EmailPage /> }.into_any(),
                 "/help" => view! { <pages::help::HelpPage /> }.into_any(),
                 _ => view! { <pages::home::HomePage /> }.into_any(),
             }

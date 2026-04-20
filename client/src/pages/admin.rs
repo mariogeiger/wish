@@ -60,13 +60,16 @@ pub fn AdminPage(key: String) -> impl IntoView {
                                         "{mail} modified their wish. Reload to see changes."
                                     )));
                                 }
-                                WsMsg::MailProgress { sent, total, errors } => {
+                                WsMsg::MailProgress { sent, total, errors, last_mail } => {
                                     let kind = if errors.is_empty() {
                                         if sent == total { ToastKind::Success } else { ToastKind::Info }
                                     } else {
                                         ToastKind::Error
                                     };
                                     let mut msg = format!("{sent}/{total} mails sent");
+                                    if let Some(m) = &last_mail {
+                                        msg.push_str(&format!("<br/>Last: {m}"));
+                                    }
                                     for e in &errors {
                                         msg.push_str(&format!("<br/>Error: {e}"));
                                     }
