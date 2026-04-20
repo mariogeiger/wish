@@ -163,6 +163,33 @@ pub const UPDATE_VARS: &[&str] = &["event_name", "admin_mail", "url"];
 pub const REMINDER_VARS: &[&str] = &["event_name", "admin_mail", "url"];
 pub const RESULTS_VARS: &[&str] = &["event_name", "slot"];
 
+/// Variables a template must contain — save is blocked if any are missing.
+pub const INVITE_REQUIRED: &[&str] = &["url"];
+pub const UPDATE_REQUIRED: &[&str] = &["url"];
+pub const REMINDER_REQUIRED: &[&str] = &["url"];
+pub const RESULTS_REQUIRED: &[&str] = &["slot"];
+
+/// Return the subset of `required` var names not present anywhere in `template`.
+pub fn missing_required_vars<'a>(template: &str, required: &'a [&'a str]) -> Vec<&'a str> {
+    required
+        .iter()
+        .filter(|&&v| !template_contains_var(template, v))
+        .copied()
+        .collect()
+}
+
+fn template_contains_var(template: &str, var: &str) -> bool {
+    let mut found = false;
+    scan_template(template, |span| {
+        if let TemplateSpan::Var { name, .. } = span
+            && name == var
+        {
+            found = true;
+        }
+    });
+    found
+}
+
 // English
 
 const INVITE_EN: &str = "Hi,\n\

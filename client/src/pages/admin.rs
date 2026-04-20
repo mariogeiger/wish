@@ -181,6 +181,44 @@ pub fn AdminPage(key: String) -> impl IntoView {
             return;
         }
 
+        let tpl_invite_val = tpl_invite.get();
+        let tpl_update_val = tpl_update.get();
+        let tpl_reminder_val = tpl_reminder.get();
+        let tpl_results_val = tpl_results.get();
+        let required_checks: [(&str, &str, &[&str]); 4] = [
+            (t.admin_invite_heading, &tpl_invite_val, INVITE_REQUIRED),
+            (t.admin_update_heading, &tpl_update_val, UPDATE_REQUIRED),
+            (
+                t.admin_reminder_heading,
+                &tpl_reminder_val,
+                REMINDER_REQUIRED,
+            ),
+            (t.admin_results_heading, &tpl_results_val, RESULTS_REQUIRED),
+        ];
+        let missing: Vec<String> = required_checks
+            .iter()
+            .filter_map(|(heading, text, required)| {
+                let missing = missing_required_vars(text, required);
+                (!missing.is_empty()).then(|| {
+                    let vars = missing
+                        .iter()
+                        .map(|v| format!("${v}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("<b>{heading}</b>: {vars}")
+                })
+            })
+            .collect();
+        if !missing.is_empty() {
+            add_toast(
+                &set_toasts,
+                t.admin_err_required_title,
+                &missing.join("<br/>"),
+                ToastKind::Error,
+            );
+            return;
+        }
+
         set_saving.set(true);
         let key = key_save.clone();
         let req = SetDataRequest {
@@ -195,10 +233,10 @@ pub fn AdminPage(key: String) -> impl IntoView {
                 .collect(),
             send_mails,
             templates: EmailTemplates {
-                invite: tpl_invite.get(),
-                update: tpl_update.get(),
-                reminder: tpl_reminder.get(),
-                results: tpl_results.get(),
+                invite: tpl_invite_val,
+                update: tpl_update_val,
+                reminder: tpl_reminder_val,
+                results: tpl_results_val,
             },
         };
 
