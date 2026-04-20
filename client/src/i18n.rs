@@ -131,6 +131,9 @@ pub struct Translations {
     pub admin_send_results: &'static str,
     pub admin_ws_banner_suffix: &'static str, // "... modified their wish. Reload to see changes."
     pub admin_click_to_reload: &'static str,
+    pub admin_data_updated_title: &'static str, // toast title when data was auto-updated
+    pub admin_stale_title: &'static str,        // toast title when save is blocked by stale state
+    pub admin_stale_mail_send: &'static str, // banner/toast body after mail-send completed while editing
     pub admin_parse_errors: &'static str,
     pub admin_fix_errors: &'static str,
     pub admin_err_required_title: &'static str, // "Required variables missing"
@@ -216,6 +219,9 @@ pub const EN: Translations = Translations {
     admin_send_results: "Send Results",
     admin_ws_banner_suffix: " modified their wish. Reload to see changes.",
     admin_click_to_reload: " (click to reload)",
+    admin_data_updated_title: "Data updated",
+    admin_stale_title: "Cannot save",
+    admin_stale_mail_send: "Server data changed during mail send. Reload to continue.",
     admin_parse_errors: "Parse errors",
     admin_fix_errors: "Fix errors before computing.",
     admin_err_required_title: "Required variables missing",
@@ -298,6 +304,9 @@ pub const FR: Translations = Translations {
     admin_send_results: "Envoyer les résultats",
     admin_ws_banner_suffix: " a modifié son souhait. Rechargez pour voir les changements.",
     admin_click_to_reload: " (cliquer pour recharger)",
+    admin_data_updated_title: "Données mises à jour",
+    admin_stale_title: "Impossible d'enregistrer",
+    admin_stale_mail_send: "Les données du serveur ont changé pendant l'envoi. Rechargez pour continuer.",
     admin_parse_errors: "Erreurs de syntaxe",
     admin_fix_errors: "Corrigez les erreurs avant de calculer.",
     admin_err_required_title: "Variables requises manquantes",
@@ -380,6 +389,9 @@ pub const IT: Translations = Translations {
     admin_send_results: "Invia risultati",
     admin_ws_banner_suffix: " ha modificato la sua preferenza. Ricarica per vedere i cambiamenti.",
     admin_click_to_reload: " (clicca per ricaricare)",
+    admin_data_updated_title: "Dati aggiornati",
+    admin_stale_title: "Impossibile salvare",
+    admin_stale_mail_send: "I dati sul server sono cambiati durante l'invio. Ricarica per continuare.",
     admin_parse_errors: "Errori di sintassi",
     admin_fix_errors: "Correggi gli errori prima di calcolare.",
     admin_err_required_title: "Variabili obbligatorie mancanti",
@@ -462,6 +474,9 @@ pub const DE: Translations = Translations {
     admin_send_results: "Ergebnisse senden",
     admin_ws_banner_suffix: " hat seinen Wunsch geändert. Lade neu, um die Änderungen zu sehen.",
     admin_click_to_reload: " (klicken, um neu zu laden)",
+    admin_data_updated_title: "Daten aktualisiert",
+    admin_stale_title: "Speichern nicht möglich",
+    admin_stale_mail_send: "Serverdaten haben sich während des Mailversands geändert. Lade neu, um fortzufahren.",
     admin_parse_errors: "Syntaxfehler",
     admin_fix_errors: "Fehler vor dem Berechnen beheben.",
     admin_err_required_title: "Erforderliche Variablen fehlen",

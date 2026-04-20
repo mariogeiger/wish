@@ -19,30 +19,58 @@ pub fn AdminPage(key: String) -> impl IntoView {
     let (results_text, set_results_text) = signal(String::new());
     let (event_name, set_event_name) = signal(String::new());
     let (saving, set_saving) = signal(false);
-    let (ws_banner_mail, set_ws_banner_mail) = signal(None::<String>);
     let (tpl_invite, set_tpl_invite) = signal(String::new());
     let (tpl_update, set_tpl_update) = signal(String::new());
     let (tpl_reminder, set_tpl_reminder) = signal(String::new());
     let (tpl_results, set_tpl_results) = signal(String::new());
     let (mail_seen, set_mail_seen) = signal(0usize);
 
-    // Fetch admin data
+    // Snapshot of last server-known state. `dirty` = current editor/template
+    // signals differ from the snapshot (→ user has unsaved edits).
+    let (clean_editor_text, set_clean_editor_text) = signal(String::new());
+    let (clean_tpl_invite, set_clean_tpl_invite) = signal(String::new());
+    let (clean_tpl_update, set_clean_tpl_update) = signal(String::new());
+    let (clean_tpl_reminder, set_clean_tpl_reminder) = signal(String::new());
+    let (clean_tpl_results, set_clean_tpl_results) = signal(String::new());
+
+    let is_dirty = move || {
+        editor_text.get_untracked() != clean_editor_text.get_untracked()
+            || tpl_invite.get_untracked() != clean_tpl_invite.get_untracked()
+            || tpl_update.get_untracked() != clean_tpl_update.get_untracked()
+            || tpl_reminder.get_untracked() != clean_tpl_reminder.get_untracked()
+            || tpl_results.get_untracked() != clean_tpl_results.get_untracked()
+    };
+
+    // Server has state we haven't loaded. Some(body) → banner visible, saves blocked.
+    let (stale_banner, set_stale_banner) = signal(None::<String>);
+
+    // Write server data into both live and clean signals; clear stale state.
+    let apply_admin_data = move |data: AdminData| {
+        let participants: Vec<(String, Vec<i32>, ParticipantStatus, Option<String>)> = data
+            .participants
+            .iter()
+            .map(|p| (p.mail.clone(), p.wish.clone(), p.status, Some(p.id.clone())))
+            .collect();
+        let editor = parse::to_editor_text(&data.slots, &participants);
+        set_event_name.set(data.name);
+        set_editor_text.set(editor.clone());
+        set_clean_editor_text.set(editor);
+        set_clean_tpl_invite.set(data.templates.invite.clone());
+        set_tpl_invite.set(data.templates.invite);
+        set_clean_tpl_update.set(data.templates.update.clone());
+        set_tpl_update.set(data.templates.update);
+        set_clean_tpl_reminder.set(data.templates.reminder.clone());
+        set_tpl_reminder.set(data.templates.reminder);
+        set_clean_tpl_results.set(data.templates.results.clone());
+        set_tpl_results.set(data.templates.results);
+        set_stale_banner.set(None);
+    };
+
+    // Initial fetch
     let key_load = key.clone();
     wasm_bindgen_futures::spawn_local(async move {
         match api::get::<AdminData>(&format!("/api/events/{key_load}")).await {
-            Ok(data) => {
-                set_event_name.set(data.name.clone());
-                let participants: Vec<(String, Vec<i32>, ParticipantStatus, Option<String>)> = data
-                    .participants
-                    .iter()
-                    .map(|p| (p.mail.clone(), p.wish.clone(), p.status, Some(p.id.clone())))
-                    .collect();
-                set_editor_text.set(parse::to_editor_text(&data.slots, &participants));
-                set_tpl_invite.set(data.templates.invite);
-                set_tpl_update.set(data.templates.update);
-                set_tpl_reminder.set(data.templates.reminder);
-                set_tpl_results.set(data.templates.results);
-            }
+            Ok(data) => apply_admin_data(data),
             Err(e) => {
                 let t = translations(lang.get());
                 add_toast(
@@ -76,7 +104,39 @@ pub fn AdminPage(key: String) -> impl IntoView {
                     {
                         match msg {
                             WsMsg::NewWish { mail } => {
-                                set_ws_banner_mail.set(Some(mail));
+                                let t = translations(lang.get());
+                                if is_dirty() {
+                                    // Block save: show banner + error toast, do not clobber edits.
+                                    set_stale_banner
+                                        .set(Some(format!("{mail}{}", t.admin_ws_banner_suffix)));
+                                    add_toast(
+                                        &set_toasts,
+                                        t.admin_stale_title,
+                                        &format!(
+                                            "{}{}",
+                                            escape_html(&mail),
+                                            t.admin_ws_banner_suffix
+                                        ),
+                                        ToastKind::Error,
+                                    );
+                                } else {
+                                    // Not editing: silently refetch and show info toast.
+                                    add_toast(
+                                        &set_toasts,
+                                        t.admin_data_updated_title,
+                                        &escape_html(&mail),
+                                        ToastKind::Info,
+                                    );
+                                    let key = key_refresh.clone();
+                                    wasm_bindgen_futures::spawn_local(async move {
+                                        if let Ok(data) =
+                                            api::get::<AdminData>(&format!("/api/events/{key}"))
+                                                .await
+                                        {
+                                            apply_admin_data(data);
+                                        }
+                                    });
+                                }
                             }
                             WsMsg::MailProgress {
                                 sent,
@@ -105,40 +165,26 @@ pub fn AdminPage(key: String) -> impl IntoView {
                                 set_mail_seen.update(|c| *c += 1);
                                 if mail_seen.get_untracked() >= total {
                                     set_mail_seen.set(0);
-                                    let key = key_refresh.clone();
-                                    wasm_bindgen_futures::spawn_local(async move {
-                                        if let Ok(data) =
-                                            api::get::<AdminData>(&format!("/api/events/{key}"))
-                                                .await
-                                        {
-                                            let participants: Vec<(
-                                                String,
-                                                Vec<i32>,
-                                                ParticipantStatus,
-                                                Option<String>,
-                                            )> = data
-                                                .participants
-                                                .iter()
-                                                .map(|p| {
-                                                    (
-                                                        p.mail.clone(),
-                                                        p.wish.clone(),
-                                                        p.status,
-                                                        Some(p.id.clone()),
-                                                    )
-                                                })
-                                                .collect();
-                                            set_editor_text.set(parse::to_editor_text(
-                                                &data.slots,
-                                                &participants,
-                                            ));
-                                            set_event_name.set(data.name);
-                                            set_tpl_invite.set(data.templates.invite);
-                                            set_tpl_update.set(data.templates.update);
-                                            set_tpl_reminder.set(data.templates.reminder);
-                                            set_tpl_results.set(data.templates.results);
-                                        }
-                                    });
+                                    if is_dirty() {
+                                        set_stale_banner
+                                            .set(Some(t.admin_stale_mail_send.to_string()));
+                                        add_toast(
+                                            &set_toasts,
+                                            t.admin_stale_title,
+                                            t.admin_stale_mail_send,
+                                            ToastKind::Error,
+                                        );
+                                    } else {
+                                        let key = key_refresh.clone();
+                                        wasm_bindgen_futures::spawn_local(async move {
+                                            if let Ok(data) =
+                                                api::get::<AdminData>(&format!("/api/events/{key}"))
+                                                    .await
+                                            {
+                                                apply_admin_data(data);
+                                            }
+                                        });
+                                    }
                                 }
                             }
                             WsMsg::Feedback {
@@ -246,18 +292,7 @@ pub fn AdminPage(key: String) -> impl IntoView {
             let t = translations(lang.get());
             match api::put::<_, AdminData>(&format!("/api/events/{key}"), &req).await {
                 Ok(data) => {
-                    let participants: Vec<(String, Vec<i32>, ParticipantStatus, Option<String>)> =
-                        data.participants
-                            .iter()
-                            .map(|p| (p.mail.clone(), p.wish.clone(), p.status, Some(p.id.clone())))
-                            .collect();
-                    set_editor_text.set(parse::to_editor_text(&data.slots, &participants));
-                    set_event_name.set(data.name);
-                    set_tpl_invite.set(data.templates.invite);
-                    set_tpl_update.set(data.templates.update);
-                    set_tpl_reminder.set(data.templates.reminder);
-                    set_tpl_results.set(data.templates.results);
-
+                    apply_admin_data(data);
                     if send_mails {
                         add_toast(
                             &set_toasts,
@@ -378,6 +413,8 @@ pub fn AdminPage(key: String) -> impl IntoView {
         });
     };
 
+    let save_disabled = move || saving.get() || stale_banner.get().is_some();
+
     view! {
         <ToastContainer toasts=toasts set_toasts=set_toasts />
         <div class="container container-wide">
@@ -388,14 +425,14 @@ pub fn AdminPage(key: String) -> impl IntoView {
 
             {move || {
                 let t = translations(lang.get());
-                ws_banner_mail.get().map(|mail| {
+                stale_banner.get().map(|body| {
                     view! {
                         <div class="editor-warnings" style="cursor:pointer"
                             on:click=move |_| {
                                 let _ = web_sys::window().unwrap().location().reload();
                             }
                         >
-                            {mail}{t.admin_ws_banner_suffix}{t.admin_click_to_reload}
+                            {body}{t.admin_click_to_reload}
                         </div>
                     }
                 })
@@ -438,10 +475,10 @@ pub fn AdminPage(key: String) -> impl IntoView {
             </details>
 
             <div class="btn-row">
-                <button on:click=on_save_only disabled=move || saving.get()>
+                <button on:click=on_save_only disabled=save_disabled>
                     {move || translations(lang.get()).admin_save}
                 </button>
-                <button on:click=on_save_and_mail disabled=move || saving.get()>
+                <button on:click=on_save_and_mail disabled=save_disabled>
                     {move || translations(lang.get()).admin_save_and_send}
                 </button>
                 <button class="btn-secondary" on:click=on_remind>
