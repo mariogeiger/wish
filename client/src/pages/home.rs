@@ -122,7 +122,7 @@ pub fn HomePage() -> impl IntoView {
     };
 
     view! {
-        <ToastContainer toasts=toasts />
+        <ToastContainer toasts=toasts set_toasts=set_toasts />
         <div class="container">
             <h1>"Wish"</h1>
             <NavBar home=false help=true offline=true />

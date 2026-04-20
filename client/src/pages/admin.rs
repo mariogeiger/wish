@@ -24,6 +24,7 @@ pub fn AdminPage(key: String) -> impl IntoView {
     let (tpl_update, set_tpl_update) = signal(String::new());
     let (tpl_reminder, set_tpl_reminder) = signal(String::new());
     let (tpl_results, set_tpl_results) = signal(String::new());
+    let (mail_seen, set_mail_seen) = signal(0usize);
 
     // Fetch admin data
     let key_load = key.clone();
@@ -80,29 +81,30 @@ pub fn AdminPage(key: String) -> impl IntoView {
                             WsMsg::MailProgress {
                                 sent,
                                 total,
-                                errors,
-                                last_mail,
+                                mail,
+                                error,
                             } => {
                                 let t = translations(lang.get());
-                                let kind = if errors.is_empty() {
-                                    if sent == total {
-                                        ToastKind::Success
-                                    } else {
-                                        ToastKind::Info
-                                    }
-                                } else {
-                                    ToastKind::Error
+                                let safe_mail = escape_html(&mail);
+                                let (kind, msg) = match &error {
+                                    None => (
+                                        ToastKind::Success,
+                                        format!("{sent}/{total} — {safe_mail}"),
+                                    ),
+                                    Some(e) => (
+                                        ToastKind::Error,
+                                        format!(
+                                            "{sent}/{total} — {safe_mail}<br/>{}{}",
+                                            t.admin_error_prefix,
+                                            escape_html(e)
+                                        ),
+                                    ),
                                 };
-                                let mut msg = format!("{sent}/{total}{}", t.admin_mails_sent);
-                                if let Some(m) = &last_mail {
-                                    msg.push_str(&format!("<br/>{}{m}", t.admin_last));
-                                }
-                                for e in &errors {
-                                    msg.push_str(&format!("<br/>{}{e}", t.admin_error_prefix));
-                                }
                                 add_toast(&set_toasts, t.admin_mail_status, &msg, kind);
 
-                                if sent == total {
+                                set_mail_seen.update(|c| *c += 1);
+                                if mail_seen.get_untracked() >= total {
+                                    set_mail_seen.set(0);
                                     let key = key_refresh.clone();
                                     wasm_bindgen_futures::spawn_local(async move {
                                         if let Ok(data) =
@@ -377,7 +379,7 @@ pub fn AdminPage(key: String) -> impl IntoView {
     };
 
     view! {
-        <ToastContainer toasts=toasts />
+        <ToastContainer toasts=toasts set_toasts=set_toasts />
         <div class="container container-wide">
             <h1>"Wish"</h1>
             <NavBar />

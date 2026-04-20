@@ -53,25 +53,28 @@ where
     let mut errors = Vec::new();
 
     for (i, email) in emails.iter().enumerate() {
-        match resend
+        let error = match resend
             .send(&email.to, &email.subject, &email.html, &email.text)
             .await
         {
             Ok(()) => {
                 sent += 1;
                 on_result(i, true).await;
+                None
             }
             Err(e) => {
-                errors.push(format!("{}: {e}", email.to));
+                let line = format!("{}: {e}", email.to);
+                errors.push(line.clone());
                 on_result(i, false).await;
+                Some(e)
             }
-        }
+        };
 
         let msg = WsMsg::MailProgress {
             sent,
             total,
-            errors: errors.clone(),
-            last_mail: Some(email.to.clone()),
+            mail: email.to.clone(),
+            error,
         };
         let _ = broadcast_tx.send(serde_json::to_string(&msg).unwrap());
     }

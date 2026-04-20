@@ -804,8 +804,8 @@ mod tests {
         let msg = WsMsg::MailProgress {
             sent: 3,
             total: 10,
-            errors: vec!["fail@x".into()],
-            last_mail: Some("ok@x".into()),
+            mail: "ok@x".into(),
+            error: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         let back: WsMsg = serde_json::from_str(&json).unwrap();
@@ -813,13 +813,13 @@ mod tests {
             WsMsg::MailProgress {
                 sent,
                 total,
-                errors,
-                last_mail,
+                mail,
+                error,
             } => {
                 assert_eq!(sent, 3);
                 assert_eq!(total, 10);
-                assert_eq!(errors, vec!["fail@x"]);
-                assert_eq!(last_mail.as_deref(), Some("ok@x"));
+                assert_eq!(mail, "ok@x");
+                assert_eq!(error, None);
             }
             _ => panic!("wrong variant"),
         }
@@ -837,8 +837,8 @@ pub enum WsMsg {
     MailProgress {
         sent: usize,
         total: usize,
-        errors: Vec<String>,
-        last_mail: Option<String>,
+        mail: String,
+        error: Option<String>,
     },
     Feedback {
         title: String,

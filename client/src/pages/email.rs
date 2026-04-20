@@ -56,7 +56,7 @@ pub fn EmailPage() -> impl IntoView {
     };
 
     view! {
-        <ToastContainer toasts=toasts />
+        <ToastContainer toasts=toasts set_toasts=set_toasts />
         <div class="container">
             <h1>"Wish \u{2014} Email Debug"</h1>
             <nav>

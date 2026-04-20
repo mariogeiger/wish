@@ -143,8 +143,6 @@ pub struct Translations {
     pub admin_results_sending: &'static str, // fmt "Sending {n} result emails..."
     pub admin_no_results: &'static str,
     pub admin_mail_status: &'static str,
-    pub admin_mails_sent: &'static str, // "mails sent"
-    pub admin_last: &'static str,       // "Last: "
     pub admin_error_prefix: &'static str,
 
     // ── Offline page ──────────────────────────────────────────────
@@ -230,8 +228,6 @@ pub const EN: Translations = Translations {
     admin_results_sending: " result emails...",
     admin_no_results: "No results to send. Compute assignment first.",
     admin_mail_status: "Mail status",
-    admin_mails_sent: " mails sent",
-    admin_last: "Last: ",
     admin_error_prefix: "Error: ",
 
     offline_heading: "Wish \u{2014} Offline",
@@ -314,8 +310,6 @@ pub const FR: Translations = Translations {
     admin_results_sending: " e-mails de résultat…",
     admin_no_results: "Aucun résultat à envoyer. Calculez d'abord l'affectation.",
     admin_mail_status: "Statut des e-mails",
-    admin_mails_sent: " e-mails envoyés",
-    admin_last: "Dernier : ",
     admin_error_prefix: "Erreur : ",
 
     offline_heading: "Wish \u{2014} Hors ligne",
@@ -398,8 +392,6 @@ pub const IT: Translations = Translations {
     admin_results_sending: " e-mail di risultato…",
     admin_no_results: "Nessun risultato da inviare. Calcola prima l'assegnazione.",
     admin_mail_status: "Stato e-mail",
-    admin_mails_sent: " e-mail inviate",
-    admin_last: "Ultima: ",
     admin_error_prefix: "Errore: ",
 
     offline_heading: "Wish \u{2014} Offline",
@@ -482,8 +474,6 @@ pub const DE: Translations = Translations {
     admin_results_sending: " Ergebnis-E-Mails…",
     admin_no_results: "Keine Ergebnisse zum Senden. Berechne zuerst die Zuteilung.",
     admin_mail_status: "E-Mail-Status",
-    admin_mails_sent: " E-Mails gesendet",
-    admin_last: "Letzte: ",
     admin_error_prefix: "Fehler: ",
 
     offline_heading: "Wish \u{2014} Offline",

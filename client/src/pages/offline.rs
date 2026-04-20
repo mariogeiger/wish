@@ -42,7 +42,7 @@ pub fn OfflinePage() -> impl IntoView {
     };
 
     view! {
-        <ToastContainer toasts=toasts />
+        <ToastContainer toasts=toasts set_toasts=set_toasts />
         <div class="container container-wide">
             <h1>{move || translations(lang.get()).offline_heading}</h1>
             <NavBar help=true />

@@ -8,7 +8,7 @@ pub struct Toast {
     pub kind: ToastKind,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ToastKind {
     Success,
     Error,
@@ -26,7 +26,10 @@ impl ToastKind {
 }
 
 #[component]
-pub fn ToastContainer(toasts: ReadSignal<Vec<Toast>>) -> impl IntoView {
+pub fn ToastContainer(
+    toasts: ReadSignal<Vec<Toast>>,
+    set_toasts: WriteSignal<Vec<Toast>>,
+) -> impl IntoView {
     view! {
         <div class="toast-container">
             {move || {
@@ -35,8 +38,13 @@ pub fn ToastContainer(toasts: ReadSignal<Vec<Toast>>) -> impl IntoView {
                     .into_iter()
                     .map(|t| {
                         let class = format!("toast {}", t.kind.css_class());
+                        let id = t.id;
+                        let on_close = move |_| {
+                            set_toasts.update(|ts| ts.retain(|x| x.id != id));
+                        };
                         view! {
                             <div class=class>
+                                <button class="toast-close" on:click=on_close aria-label="close">"×"</button>
                                 <strong>{t.title}</strong>
                                 <div inner_html=t.message />
                             </div>
@@ -63,12 +71,14 @@ pub fn add_toast(
         message: message.to_string(),
         kind,
     };
+    let auto_dismiss = kind != ToastKind::Error;
     set_toasts.update(|ts| ts.push(toast));
 
-    // Auto-remove after 4 seconds
-    let set_toasts = *set_toasts;
-    wasm_bindgen_futures::spawn_local(async move {
-        gloo_timers::future::TimeoutFuture::new(4000).await;
-        set_toasts.update(|ts| ts.retain(|t| t.id != id));
-    });
+    if auto_dismiss {
+        let set_toasts = *set_toasts;
+        wasm_bindgen_futures::spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(4000).await;
+            set_toasts.update(|ts| ts.retain(|t| t.id != id));
+        });
+    }
 }

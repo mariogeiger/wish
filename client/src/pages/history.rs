@@ -46,7 +46,7 @@ pub fn HistoryPage() -> impl IntoView {
     };
 
     view! {
-        <ToastContainer toasts=toasts />
+        <ToastContainer toasts=toasts set_toasts=set_toasts />
         <div class="container">
             <h1>{move || translations(lang.get()).history_heading}</h1>
             <NavBar />
