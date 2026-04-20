@@ -2,21 +2,24 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use wish_shared::*;
 
+use crate::NavBar;
 use crate::api;
 use crate::components::editor::{Editor, highlight};
 use crate::components::feedback::{ToastContainer, ToastKind, add_toast};
 use crate::components::template_editor::TemplateEditor;
 use crate::hungarian;
+use crate::i18n::{translations, use_lang};
 use crate::parse;
 
 #[component]
 pub fn AdminPage(key: String) -> impl IntoView {
+    let lang = use_lang();
     let (toasts, set_toasts) = signal(Vec::new());
     let (editor_text, set_editor_text) = signal(String::new());
     let (results_text, set_results_text) = signal(String::new());
     let (event_name, set_event_name) = signal(String::new());
     let (saving, set_saving) = signal(false);
-    let (ws_banner, set_ws_banner) = signal(None::<String>);
+    let (ws_banner_mail, set_ws_banner_mail) = signal(None::<String>);
     let (tpl_invite, set_tpl_invite) = signal(String::new());
     let (tpl_update, set_tpl_update) = signal(String::new());
     let (tpl_reminder, set_tpl_reminder) = signal(String::new());
@@ -40,10 +43,11 @@ pub fn AdminPage(key: String) -> impl IntoView {
                 set_tpl_results.set(data.templates.results);
             }
             Err(e) => {
+                let t = translations(lang.get());
                 add_toast(
                     &set_toasts,
-                    "Error",
-                    &format!("Failed to load: {e}"),
+                    t.error,
+                    &format!("{}{e}", t.failed_to_load),
                     ToastKind::Error,
                 );
             }
@@ -71,9 +75,7 @@ pub fn AdminPage(key: String) -> impl IntoView {
                     {
                         match msg {
                             WsMsg::NewWish { mail } => {
-                                set_ws_banner.set(Some(format!(
-                                    "{mail} modified their wish. Reload to see changes."
-                                )));
+                                set_ws_banner_mail.set(Some(mail));
                             }
                             WsMsg::MailProgress {
                                 sent,
@@ -81,6 +83,7 @@ pub fn AdminPage(key: String) -> impl IntoView {
                                 errors,
                                 last_mail,
                             } => {
+                                let t = translations(lang.get());
                                 let kind = if errors.is_empty() {
                                     if sent == total {
                                         ToastKind::Success
@@ -90,14 +93,14 @@ pub fn AdminPage(key: String) -> impl IntoView {
                                 } else {
                                     ToastKind::Error
                                 };
-                                let mut msg = format!("{sent}/{total} mails sent");
+                                let mut msg = format!("{sent}/{total}{}", t.admin_mails_sent);
                                 if let Some(m) = &last_mail {
-                                    msg.push_str(&format!("<br/>Last: {m}"));
+                                    msg.push_str(&format!("<br/>{}{m}", t.admin_last));
                                 }
                                 for e in &errors {
-                                    msg.push_str(&format!("<br/>Error: {e}"));
+                                    msg.push_str(&format!("<br/>{}{e}", t.admin_error_prefix));
                                 }
-                                add_toast(&set_toasts, "Mail status", &msg, kind);
+                                add_toast(&set_toasts, t.admin_mail_status, &msg, kind);
 
                                 if sent == total {
                                     let key = key_refresh.clone();
@@ -161,11 +164,12 @@ pub fn AdminPage(key: String) -> impl IntoView {
     let on_save = move |send_mails: bool| {
         let text = editor_text.get();
         let parsed = parse::parse(&text);
+        let t = translations(lang.get());
 
         if !parsed.errors.is_empty() {
             add_toast(
                 &set_toasts,
-                "Parse errors",
+                t.admin_parse_errors,
                 &parsed
                     .errors
                     .iter()
@@ -199,9 +203,9 @@ pub fn AdminPage(key: String) -> impl IntoView {
         };
 
         wasm_bindgen_futures::spawn_local(async move {
+            let t = translations(lang.get());
             match api::put::<_, AdminData>(&format!("/api/events/{key}"), &req).await {
                 Ok(data) => {
-                    // Refresh editor with fresh server state
                     let participants: Vec<(String, Vec<i32>, ParticipantStatus, Option<String>)> =
                         data.participants
                             .iter()
@@ -217,16 +221,16 @@ pub fn AdminPage(key: String) -> impl IntoView {
                     if send_mails {
                         add_toast(
                             &set_toasts,
-                            "Saved & sending",
-                            "Data saved. Sending mails...",
+                            t.admin_saved_and_sending,
+                            t.admin_data_saved_sending,
                             ToastKind::Info,
                         );
                     } else {
-                        add_toast(&set_toasts, "Saved", "Data saved.", ToastKind::Success);
+                        add_toast(&set_toasts, t.saved, t.admin_data_saved, ToastKind::Success);
                     }
                 }
                 Err(e) => {
-                    add_toast(&set_toasts, "Error", &e, ToastKind::Error);
+                    add_toast(&set_toasts, t.error, &e, ToastKind::Error);
                 }
             }
             set_saving.set(false);
@@ -246,6 +250,7 @@ pub fn AdminPage(key: String) -> impl IntoView {
     let on_remind = move |_| {
         let key = key_remind.clone();
         wasm_bindgen_futures::spawn_local(async move {
+            let t = translations(lang.get());
             match api::post::<_, SendMailsResponse>(
                 &format!("/api/events/{key}/remind"),
                 &serde_json::json!({}),
@@ -255,13 +260,13 @@ pub fn AdminPage(key: String) -> impl IntoView {
                 Ok(resp) => {
                     add_toast(
                         &set_toasts,
-                        "Reminders",
-                        &format!("Sending {} reminders...", resp.total),
+                        t.admin_reminders_title,
+                        &format!("{}{}", resp.total, t.admin_reminders_sending),
                         ToastKind::Info,
                     );
                 }
                 Err(e) => {
-                    add_toast(&set_toasts, "Error", &e, ToastKind::Error);
+                    add_toast(&set_toasts, t.error, &e, ToastKind::Error);
                 }
             }
         });
@@ -270,10 +275,11 @@ pub fn AdminPage(key: String) -> impl IntoView {
     let on_compute = move |_| match hungarian::compute_and_format(&editor_text.get()) {
         Ok(text) => set_results_text.set(text),
         Err(_) => {
+            let t = translations(lang.get());
             add_toast(
                 &set_toasts,
-                "Parse errors",
-                "Fix errors before computing.",
+                t.admin_parse_errors,
+                t.admin_fix_errors,
                 ToastKind::Error,
             );
         }
@@ -282,6 +288,7 @@ pub fn AdminPage(key: String) -> impl IntoView {
     let key_results = key.clone();
     let on_send_results = move |_| {
         let text = results_text.get();
+        let t = translations(lang.get());
         // Parse results to extract mail -> slot mapping
         let mut entries = Vec::new();
         let mut in_results = false;
@@ -294,7 +301,6 @@ pub fn AdminPage(key: String) -> impl IntoView {
             if !in_results || trimmed.starts_with('%') || trimmed.is_empty() {
                 continue;
             }
-            // Extract two quoted strings: "mail" "slot name"
             if let Some((mail, rest)) = parse::parse_quoted_string(trimmed)
                 && let Some((slot, _)) = parse::parse_quoted_string(rest)
             {
@@ -306,31 +312,27 @@ pub fn AdminPage(key: String) -> impl IntoView {
         }
 
         if entries.is_empty() {
-            add_toast(
-                &set_toasts,
-                "Error",
-                "No results to send. Compute assignment first.",
-                ToastKind::Error,
-            );
+            add_toast(&set_toasts, t.error, t.admin_no_results, ToastKind::Error);
             return;
         }
 
         let key = key_results.clone();
         let req = SendResultsRequest { results: entries };
         wasm_bindgen_futures::spawn_local(async move {
+            let t = translations(lang.get());
             match api::post::<_, SendMailsResponse>(&format!("/api/events/{key}/results"), &req)
                 .await
             {
                 Ok(resp) => {
                     add_toast(
                         &set_toasts,
-                        "Results",
-                        &format!("Sending {} result emails...", resp.total),
+                        t.admin_results_title,
+                        &format!("{}{}", resp.total, t.admin_results_sending),
                         ToastKind::Info,
                     );
                 }
                 Err(e) => {
-                    add_toast(&set_toasts, "Error", &e, ToastKind::Error);
+                    add_toast(&set_toasts, t.error, &e, ToastKind::Error);
                 }
             }
         });
@@ -340,62 +342,77 @@ pub fn AdminPage(key: String) -> impl IntoView {
         <ToastContainer toasts=toasts />
         <div class="container">
             <h1>"Wish"</h1>
-            <nav>
-                <a href="/">"Home"</a>
-                <a href="/help">"Help"</a>
-            </nav>
+            <NavBar />
 
             <h2>{move || event_name.get()}</h2>
 
             {move || {
-                ws_banner.get().map(|msg| {
+                let t = translations(lang.get());
+                ws_banner_mail.get().map(|mail| {
                     view! {
                         <div class="editor-warnings" style="cursor:pointer"
                             on:click=move |_| {
                                 let _ = web_sys::window().unwrap().location().reload();
                             }
                         >
-                            {msg}" (click to reload)"
+                            {mail}{t.admin_ws_banner_suffix}{t.admin_click_to_reload}
                         </div>
                     }
                 })
             }}
 
-            <h3>"Problem Settings"</h3>
+            <h3>{move || translations(lang.get()).admin_problem_settings}</h3>
             <Editor text=editor_text set_text=set_editor_text />
 
             <details class="tpl-section">
-                <summary>"Email Templates"</summary>
-                <p class="muted">
-                    "Highlighted variables are substituted at send time. Unknown "
-                    <code>"$words"</code> " render literally. Saved when you click Save."
-                </p>
+                <summary>{move || translations(lang.get()).admin_email_templates}</summary>
+                <p class="muted">{move || translations(lang.get()).admin_templates_hint}</p>
 
-                <h4>"Invite (first email)"</h4>
-                <p class="muted">"Available: $event_name, $admin_mail, $url"</p>
+                <h4>{move || translations(lang.get()).admin_invite_heading}</h4>
+                <p class="muted">
+                    {move || translations(lang.get()).admin_available_prefix}
+                    "$event_name, $admin_mail, $url"
+                </p>
                 <TemplateEditor text=tpl_invite set_text=set_tpl_invite />
 
-                <h4>"Update (after slots change)"</h4>
-                <p class="muted">"Available: $event_name, $admin_mail, $url"</p>
+                <h4>{move || translations(lang.get()).admin_update_heading}</h4>
+                <p class="muted">
+                    {move || translations(lang.get()).admin_available_prefix}
+                    "$event_name, $admin_mail, $url"
+                </p>
                 <TemplateEditor text=tpl_update set_text=set_tpl_update />
 
-                <h4>"Reminder"</h4>
-                <p class="muted">"Available: $event_name, $url"</p>
+                <h4>{move || translations(lang.get()).admin_reminder_heading}</h4>
+                <p class="muted">
+                    {move || translations(lang.get()).admin_available_prefix}
+                    "$event_name, $url"
+                </p>
                 <TemplateEditor text=tpl_reminder set_text=set_tpl_reminder />
 
-                <h4>"Results (per participant)"</h4>
-                <p class="muted">"Available: $event_name, $slot"</p>
+                <h4>{move || translations(lang.get()).admin_results_heading}</h4>
+                <p class="muted">
+                    {move || translations(lang.get()).admin_available_prefix}
+                    "$event_name, $slot"
+                </p>
                 <TemplateEditor text=tpl_results set_text=set_tpl_results />
             </details>
 
             <div class="btn-row">
-                <button on:click=on_save_only disabled=move || saving.get()>"Save"</button>
-                <button on:click=on_save_and_mail disabled=move || saving.get()>"Save & Send Mails"</button>
-                <button class="btn-secondary" on:click=on_remind>"Send Reminder"</button>
-                <button class="btn-success" on:click=on_compute>"Compute Assignment"</button>
+                <button on:click=on_save_only disabled=move || saving.get()>
+                    {move || translations(lang.get()).admin_save}
+                </button>
+                <button on:click=on_save_and_mail disabled=move || saving.get()>
+                    {move || translations(lang.get()).admin_save_and_send}
+                </button>
+                <button class="btn-secondary" on:click=on_remind>
+                    {move || translations(lang.get()).admin_send_reminder}
+                </button>
+                <button class="btn-success" on:click=on_compute>
+                    {move || translations(lang.get()).admin_compute_assignment}
+                </button>
             </div>
 
-            <h3>"Assignment"</h3>
+            <h3>{move || translations(lang.get()).admin_assignment}</h3>
             <pre
                 class="editor-area results-area"
                 inner_html=move || {
@@ -405,7 +422,9 @@ pub fn AdminPage(key: String) -> impl IntoView {
             />
 
             <div class="btn-row">
-                <button class="btn-success" on:click=on_send_results>"Send Results"</button>
+                <button class="btn-success" on:click=on_send_results>
+                    {move || translations(lang.get()).admin_send_results}
+                </button>
             </div>
         </div>
     }

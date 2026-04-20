@@ -1,8 +1,10 @@
 use leptos::prelude::*;
 
+use crate::NavBar;
 use crate::components::editor::{Editor, highlight};
 use crate::components::feedback::{ToastContainer, ToastKind, add_toast};
 use crate::hungarian;
+use crate::i18n::{translations, use_lang};
 
 const DEFAULT_TEXT: &str = r#"[slots]
 "Monday morning"    0 10
@@ -17,6 +19,7 @@ const DEFAULT_TEXT: &str = r#"[slots]
 
 #[component]
 pub fn OfflinePage() -> impl IntoView {
+    let lang = use_lang();
     let (toasts, set_toasts) = signal(Vec::new());
     let (editor_text, set_editor_text) = signal(DEFAULT_TEXT.to_string());
     let (results_text, set_results_text) = signal(String::new());
@@ -24,9 +27,10 @@ pub fn OfflinePage() -> impl IntoView {
     let on_compute = move |_| match hungarian::compute_and_format(&editor_text.get()) {
         Ok(text) => set_results_text.set(text),
         Err(errors) => {
+            let t = translations(lang.get());
             add_toast(
                 &set_toasts,
-                "Parse errors",
+                t.admin_parse_errors,
                 &errors
                     .iter()
                     .map(|e| format!("Line {}: {}", e.line + 1, e.message))
@@ -40,22 +44,21 @@ pub fn OfflinePage() -> impl IntoView {
     view! {
         <ToastContainer toasts=toasts />
         <div class="container">
-            <h1>"Wish — Offline"</h1>
-            <nav>
-                <a href="/">"Home"</a>
-                <a href="/help">"Help"</a>
-            </nav>
+            <h1>{move || translations(lang.get()).offline_heading}</h1>
+            <NavBar help=true />
 
-            <p>"This is the offline version. No emails are sent and no data is saved on the server."</p>
+            <p>{move || translations(lang.get()).offline_note}</p>
 
-            <h3>"Problem Settings"</h3>
+            <h3>{move || translations(lang.get()).admin_problem_settings}</h3>
             <Editor text=editor_text set_text=set_editor_text />
 
             <div class="btn-row">
-                <button class="btn-success" on:click=on_compute>"Compute Assignment"</button>
+                <button class="btn-success" on:click=on_compute>
+                    {move || translations(lang.get()).admin_compute_assignment}
+                </button>
             </div>
 
-            <h3>"Assignment"</h3>
+            <h3>{move || translations(lang.get()).admin_assignment}</h3>
             <pre
                 class="editor-area results-area"
                 inner_html=move || {

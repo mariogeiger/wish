@@ -1,11 +1,14 @@
 use leptos::prelude::*;
 use wish_shared::{HistoryEntry, HistoryRequest};
 
+use crate::NavBar;
 use crate::api;
 use crate::components::feedback::{ToastContainer, ToastKind, add_toast};
+use crate::i18n::{translations, use_lang};
 
 #[component]
 pub fn HistoryPage() -> impl IntoView {
+    let lang = use_lang();
     let (toasts, set_toasts) = signal(Vec::new());
     let (password, set_password) = signal(String::new());
     let (entries, set_entries) = signal(Vec::<HistoryEntry>::new());
@@ -25,7 +28,8 @@ pub fn HistoryPage() -> impl IntoView {
                     set_loaded.set(true);
                 }
                 Err(e) => {
-                    add_toast(&set_toasts, "Error", &e, ToastKind::Error);
+                    let t = translations(lang.get());
+                    add_toast(&set_toasts, t.error, &e, ToastKind::Error);
                 }
             }
         });
@@ -44,18 +48,16 @@ pub fn HistoryPage() -> impl IntoView {
     view! {
         <ToastContainer toasts=toasts />
         <div class="container">
-            <h1>"Wish \u{2014} History"</h1>
-            <nav>
-                <a href="/">"Home"</a>
-                <a href="/help">"Help"</a>
-            </nav>
+            <h1>{move || translations(lang.get()).history_heading}</h1>
+            <NavBar />
 
             {move || {
+                let t = translations(lang.get());
                 if !loaded.get() {
                     view! {
                         <div class="row" style="max-width: 300px">
                             <div>
-                                <label>"Password"</label>
+                                <label>{t.history_password}</label>
                                 <input type="password"
                                     prop:value=move || password.get()
                                     on:input=move |ev| {
@@ -65,13 +67,14 @@ pub fn HistoryPage() -> impl IntoView {
                                 />
                             </div>
                         </div>
-                        <button on:click=on_click>"View History"</button>
+                        <button on:click=on_click>{t.history_view}</button>
                     }
                     .into_any()
                 } else {
                     view! {
                         <ul>
                             {move || {
+                                let t = translations(lang.get());
                                 entries
                                     .get()
                                     .iter()
@@ -84,8 +87,8 @@ pub fn HistoryPage() -> impl IntoView {
                                                 <a href=admin_url>
                                                     <strong>{e.name.clone()}</strong>
                                                 </a>
-                                                " (admin: "{e.admin_mail.clone()}", "
-                                                {e.num_participants}" participants)"
+                                                " ("{t.history_admin_label}{e.admin_mail.clone()}", "
+                                                {e.num_participants}" "{t.history_participants}")"
                                             </li>
                                         }
                                     })

@@ -284,8 +284,34 @@ nav {
     margin-bottom: 1.5rem;
     padding-bottom: 0.75rem;
     border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
 }
 nav a { margin: 0 0.75rem; font-weight: 500; }
+
+.lang-switcher {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 0.25rem;
+}
+.lang-switcher button {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 0.15rem 0.45rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+.lang-switcher button:hover { background: #f0f0f0; color: var(--text); }
+.lang-switcher button.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
 
 /* ── Misc ───────────────────────────────────────────────────────── */
 

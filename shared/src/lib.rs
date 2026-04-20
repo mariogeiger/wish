@@ -1,5 +1,44 @@
 use serde::{Deserialize, Serialize};
 
+// ── Language ───────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Lang {
+    #[default]
+    En,
+    Fr,
+    It,
+    De,
+}
+
+impl Lang {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::En => "en",
+            Self::Fr => "fr",
+            Self::It => "it",
+            Self::De => "de",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        match code {
+            "en" => Some(Self::En),
+            "fr" => Some(Self::Fr),
+            "it" => Some(Self::It),
+            "de" => Some(Self::De),
+            _ => None,
+        }
+    }
+
+    /// Best-effort match from a browser-style tag like "fr-CA" or "en-US".
+    pub fn from_browser_tag(tag: &str) -> Option<Self> {
+        let prefix = tag.split(['-', '_']).next().unwrap_or(tag).to_lowercase();
+        Self::from_code(&prefix)
+    }
+}
+
 // ── Core data model ────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,11 +131,23 @@ pub struct EmailTemplates {
 
 impl Default for EmailTemplates {
     fn default() -> Self {
+        Self::for_lang(Lang::En)
+    }
+}
+
+impl EmailTemplates {
+    pub fn for_lang(lang: Lang) -> Self {
+        let (invite, update, reminder, results) = match lang {
+            Lang::En => (INVITE_EN, UPDATE_EN, REMINDER_EN, RESULTS_EN),
+            Lang::Fr => (INVITE_FR, UPDATE_FR, REMINDER_FR, RESULTS_FR),
+            Lang::It => (INVITE_IT, UPDATE_IT, REMINDER_IT, RESULTS_IT),
+            Lang::De => (INVITE_DE, UPDATE_DE, REMINDER_DE, RESULTS_DE),
+        };
         Self {
-            invite: DEFAULT_INVITE_TEMPLATE.to_string(),
-            update: DEFAULT_UPDATE_TEMPLATE.to_string(),
-            reminder: DEFAULT_REMINDER_TEMPLATE.to_string(),
-            results: DEFAULT_RESULTS_TEMPLATE.to_string(),
+            invite: invite.to_string(),
+            update: update.to_string(),
+            reminder: reminder.to_string(),
+            results: results.to_string(),
         }
     }
 }
@@ -106,7 +157,9 @@ impl Default for EmailTemplates {
 /// time; anything else renders literally.
 pub const TEMPLATE_VARIABLES: &[&str] = &["event_name", "admin_mail", "url", "slot"];
 
-pub const DEFAULT_INVITE_TEMPLATE: &str = "Hi,\n\
+// English
+
+const INVITE_EN: &str = "Hi,\n\
      \n\
      You have been invited by $admin_mail to give your wishes about the event: $event_name\n\
      \n\
@@ -115,7 +168,7 @@ pub const DEFAULT_INVITE_TEMPLATE: &str = "Hi,\n\
      Have a nice day,\n\
      The Wish team";
 
-pub const DEFAULT_UPDATE_TEMPLATE: &str = "Hi,\n\
+const UPDATE_EN: &str = "Hi,\n\
      \n\
      The administrator ($admin_mail) of the event $event_name has modified the slots.\n\
      \n\
@@ -124,7 +177,7 @@ pub const DEFAULT_UPDATE_TEMPLATE: &str = "Hi,\n\
      Have a nice day,\n\
      The Wish team";
 
-pub const DEFAULT_REMINDER_TEMPLATE: &str = "Hi,\n\
+const REMINDER_EN: &str = "Hi,\n\
      \n\
      Don't forget to fill your wish for the event $event_name.\n\
      \n\
@@ -133,12 +186,120 @@ pub const DEFAULT_REMINDER_TEMPLATE: &str = "Hi,\n\
      Have a nice day,\n\
      The Wish team";
 
-pub const DEFAULT_RESULTS_TEMPLATE: &str = "Hi,\n\
+const RESULTS_EN: &str = "Hi,\n\
      \n\
      You have been put in the slot $slot for the event $event_name.\n\
      \n\
      Have a nice day,\n\
      The Wish team";
+
+// French
+
+const INVITE_FR: &str = "Bonjour,\n\
+     \n\
+     Vous avez été invité·e par $admin_mail à donner vos souhaits pour l'événement : $event_name\n\
+     \n\
+     Pour renseigner vos souhaits, rendez-vous sur : $url\n\
+     \n\
+     Bonne journée,\n\
+     L'équipe Wish";
+
+const UPDATE_FR: &str = "Bonjour,\n\
+     \n\
+     L'administrateur ($admin_mail) de l'événement $event_name a modifié les créneaux.\n\
+     \n\
+     Merci de revoir vos souhaits : $url\n\
+     \n\
+     Bonne journée,\n\
+     L'équipe Wish";
+
+const REMINDER_FR: &str = "Bonjour,\n\
+     \n\
+     N'oubliez pas de renseigner vos souhaits pour l'événement $event_name.\n\
+     \n\
+     Rendez-vous sur : $url\n\
+     \n\
+     Bonne journée,\n\
+     L'équipe Wish";
+
+const RESULTS_FR: &str = "Bonjour,\n\
+     \n\
+     Vous avez été placé·e dans le créneau $slot pour l'événement $event_name.\n\
+     \n\
+     Bonne journée,\n\
+     L'équipe Wish";
+
+// Italian
+
+const INVITE_IT: &str = "Ciao,\n\
+     \n\
+     Sei stato/a invitato/a da $admin_mail a esprimere le tue preferenze per l'evento: $event_name\n\
+     \n\
+     Per indicare le tue preferenze, vai su: $url\n\
+     \n\
+     Buona giornata,\n\
+     Il team Wish";
+
+const UPDATE_IT: &str = "Ciao,\n\
+     \n\
+     L'amministratore ($admin_mail) dell'evento $event_name ha modificato le fasce orarie.\n\
+     \n\
+     Ti preghiamo di rivedere le tue preferenze: $url\n\
+     \n\
+     Buona giornata,\n\
+     Il team Wish";
+
+const REMINDER_IT: &str = "Ciao,\n\
+     \n\
+     Non dimenticare di indicare le tue preferenze per l'evento $event_name.\n\
+     \n\
+     Vai su: $url\n\
+     \n\
+     Buona giornata,\n\
+     Il team Wish";
+
+const RESULTS_IT: &str = "Ciao,\n\
+     \n\
+     Sei stato/a assegnato/a alla fascia $slot per l'evento $event_name.\n\
+     \n\
+     Buona giornata,\n\
+     Il team Wish";
+
+// German
+
+const INVITE_DE: &str = "Hallo,\n\
+     \n\
+     Du wurdest von $admin_mail eingeladen, deine Wünsche für die Veranstaltung anzugeben: $event_name\n\
+     \n\
+     Um deine Wünsche einzutragen, gehe zu: $url\n\
+     \n\
+     Einen schönen Tag,\n\
+     Das Wish-Team";
+
+const UPDATE_DE: &str = "Hallo,\n\
+     \n\
+     Der Administrator ($admin_mail) der Veranstaltung $event_name hat die Zeitfenster geändert.\n\
+     \n\
+     Bitte überprüfe deine Wünsche: $url\n\
+     \n\
+     Einen schönen Tag,\n\
+     Das Wish-Team";
+
+const REMINDER_DE: &str = "Hallo,\n\
+     \n\
+     Vergiss nicht, deine Wünsche für die Veranstaltung $event_name anzugeben.\n\
+     \n\
+     Gehe zu: $url\n\
+     \n\
+     Einen schönen Tag,\n\
+     Das Wish-Team";
+
+const RESULTS_DE: &str = "Hallo,\n\
+     \n\
+     Du wurdest dem Zeitfenster $slot für die Veranstaltung $event_name zugeteilt.\n\
+     \n\
+     Einen schönen Tag,\n\
+     Das Wish-Team";
 
 /// Scan `$name` tokens in `template`. `emit` receives each span as either
 /// plain text or a variable reference (name, whether known). Used by both the
@@ -236,6 +397,8 @@ pub struct CreateEventRequest {
     pub admin_mail: String,
     pub mails: Vec<String>,
     pub slots: Vec<Slot>,
+    #[serde(default)]
+    pub lang: Lang,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

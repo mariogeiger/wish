@@ -1,12 +1,15 @@
 use leptos::prelude::*;
 use wish_shared::{SetWishRequest, WishData};
 
+use crate::NavBar;
 use crate::api;
 use crate::components::feedback::{ToastContainer, ToastKind, add_toast};
 use crate::components::slider::WishSliders;
+use crate::i18n::{translations, use_lang};
 
 #[component]
 pub fn WishPage(key: String) -> impl IntoView {
+    let lang = use_lang();
     let (toasts, set_toasts) = signal(Vec::new());
     let (data, set_data) = signal(None::<WishData>);
     let (wish, set_wish) = signal(Vec::<i32>::new());
@@ -32,10 +35,11 @@ pub fn WishPage(key: String) -> impl IntoView {
                     .await;
                 }
                 Err(e) => {
+                    let t = translations(lang.get());
                     add_toast(
                         &set_toasts,
-                        "Error",
-                        &format!("Failed to load: {e}"),
+                        t.error,
+                        &format!("{}{e}", t.failed_to_load),
                         ToastKind::Error,
                     );
                 }
@@ -49,17 +53,13 @@ pub fn WishPage(key: String) -> impl IntoView {
         let w = wish.get();
         wasm_bindgen_futures::spawn_local(async move {
             let req = SetWishRequest { wish: w };
+            let t = translations(lang.get());
             match api::put::<_, serde_json::Value>(&format!("/api/wish/{k}"), &req).await {
                 Ok(_) => {
-                    add_toast(
-                        &set_toasts,
-                        "Saved",
-                        "Your wish has been saved.",
-                        ToastKind::Success,
-                    );
+                    add_toast(&set_toasts, t.saved, t.wish_saved_body, ToastKind::Success);
                 }
                 Err(e) => {
-                    add_toast(&set_toasts, "Error", &e, ToastKind::Error);
+                    add_toast(&set_toasts, t.error, &e, ToastKind::Error);
                 }
             }
             set_saving.set(false);
@@ -70,15 +70,13 @@ pub fn WishPage(key: String) -> impl IntoView {
         <ToastContainer toasts=toasts />
         <div class="container">
             <h1>"Wish"</h1>
-            <nav>
-                <a href="/">"Home"</a>
-                <a href="/help">"Help"</a>
-            </nav>
+            <NavBar />
 
             {move || {
+                let t = translations(lang.get());
                 if let Some(d) = data.get() {
                     view! {
-                        <p><strong>"Activity: "</strong>{d.name.clone()}</p>
+                        <p><strong>{t.wish_activity}</strong>{d.name.clone()}</p>
                         <p class="muted">{d.mail.clone()}</p>
 
                         <WishSliders
@@ -89,13 +87,16 @@ pub fn WishPage(key: String) -> impl IntoView {
 
                         <div class="btn-row">
                             <button on:click=on_save disabled=move || saving.get()>
-                                {move || if saving.get() { "Saving..." } else { "Save" }}
+                                {move || {
+                                    let t = translations(lang.get());
+                                    if saving.get() { t.wish_saving } else { t.wish_save }
+                                }}
                             </button>
                         </div>
                     }
                     .into_any()
                 } else {
-                    view! { <p>"Loading..."</p> }.into_any()
+                    view! { <p>{t.wish_loading}</p> }.into_any()
                 }
             }}
         </div>

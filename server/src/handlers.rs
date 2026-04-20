@@ -124,7 +124,7 @@ pub async fn create_event(
             url: base_url.clone(),
             participants: participant_ids,
             creation_time: now,
-            templates: EmailTemplates::default(),
+            templates: EmailTemplates::for_lang(body.lang),
         });
 
         event_id
