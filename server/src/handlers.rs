@@ -135,19 +135,20 @@ pub async fn create_event(
     let event_name = body.name.clone();
     let eid = event_id.clone();
     tokio::spawn(async move {
-        let admin_url = format!("{base_url}/admin?{eid}");
         let safe_name = escape_html(&event_name);
+        let admin_url = format!("{base_url}/admin?{eid}");
+        let safe_admin_url = escape_html(&admin_url);
         let html = format!(
             "<p>Hi,</p>\
              <p>An event has been created with your email address.<br />\
-             <strong>If you are not concerned, please do not click on the following url.</strong><br />\
-             <a href=\"{admin_url}\">Click here</a> to administrate the activity.</p>\
+             <strong>If you are not concerned, please ignore this email.</strong></p>\
+             <p>To administrate the activity, go to: {safe_admin_url}</p>\
              <p>Have a nice day,<br />The Wish team</p>"
         );
         let text = format!(
             "Hi,\n\
              An event has been created with your email address.\n\
-             If you are not concerned, please do not click on the following url.\n\
+             If you are not concerned, please ignore this email.\n\n\
              To administrate the activity, go to: {admin_url}\n\n\
              Have a nice day,\nThe Wish team"
         );
@@ -323,20 +324,21 @@ pub async fn set_admin_data(
             .iter()
             .map(|(pid, mail, status)| {
                 let wish_url = format!("{}/wish?{pid}", info.base_url);
+                let safe_wish_url = escape_html(&wish_url);
                 let (html, text) = if status.as_i32() <= 0 {
                     (
                         format!(
                             "<p>Hi,</p>\
                              <p>You have been invited by {safe_admin} to give your wishes about the event: <strong>{safe_name}</strong></p><br />\
                              <pre>{safe_message}</pre>\
-                             <p><a href=\"{wish_url}\">Click here</a> to set your wishes.</p>\
+                             <p>To set your wishes, go to: {safe_wish_url}</p>\
                              <p>Have a nice day,<br />The Wish team</p>"
                         ),
                         format!(
                             "Hi,\n\
                              You have been invited by {} to give your wishes about the event: {}\n\
                              {}\n\n\
-                             {wish_url}\n\n\
+                             To set your wishes, go to: {wish_url}\n\n\
                              Have a nice day,\nThe Wish team",
                             info.admin_mail, info.event_name, info.event_message
                         ),
@@ -346,7 +348,7 @@ pub async fn set_admin_data(
                         format!(
                             "<p>Hi,</p>\
                              <p>The administrator ({safe_admin}) of the event <strong>{safe_name}</strong> has modified the slots.</p>\
-                             <p>Please look at <a href=\"{wish_url}\">your wish</a>.</p>\
+                             <p>Please look at your wish: {safe_wish_url}</p>\
                              <p>Have a nice day,<br />The Wish team</p>"
                         ),
                         format!(
@@ -447,18 +449,20 @@ pub async fn send_reminders(state: web::Data<AppState>, path: web::Path<String>)
         .iter()
         .map(|(pid, mail)| {
             let wish_url = format!("{}/wish?{pid}", info.base_url);
+            let safe_wish_url = escape_html(&wish_url);
             OutgoingEmail {
                 to: mail.clone(),
                 subject: format!("Wish: {}", info.event_name),
                 html: format!(
                     "<p>Hi,</p>\
-                     <p>Don't forget to fill <a href=\"{wish_url}\">your wish</a> for the event <strong>{safe_name}</strong>.</p>\
+                     <p>Don't forget to fill your wish for the event <strong>{safe_name}</strong>.</p>\
+                     <p>Go to: {safe_wish_url}</p>\
                      <p>Have a nice day,<br />The Wish team</p>"
                 ),
                 text: format!(
                     "Hi,\n\
                      Don't forget to fill your wish for the event {}.\n\
-                     {wish_url}\n\n\
+                     Go to: {wish_url}\n\n\
                      Have a nice day,\nThe Wish team",
                     info.event_name
                 ),
