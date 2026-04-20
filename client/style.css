@@ -31,9 +31,13 @@ a:hover { text-decoration: underline; }
 
 .container {
     max-width: var(--max-w);
-    margin: 2rem auto;
-    padding: 0 var(--gap);
+    margin: 1rem auto;
+    /* hmargin = min(fixed, 3vw) — caps at 12px on wide screens, shrinks
+       proportionally on narrow viewports (e.g. ~9.6px at 320px wide). */
+    padding: 0 min(12px, 3vw);
 }
+
+.container.container-wide { max-width: 1100px; }
 
 h1 { text-align: center; margin-bottom: 0.5rem; font-size: 2rem; }
 h2 { margin: 1.5rem 0 0.5rem; font-size: 1.4rem; }

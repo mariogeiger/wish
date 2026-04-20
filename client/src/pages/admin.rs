@@ -340,7 +340,7 @@ pub fn AdminPage(key: String) -> impl IntoView {
 
     view! {
         <ToastContainer toasts=toasts />
-        <div class="container">
+        <div class="container container-wide">
             <h1>"Wish"</h1>
             <NavBar />
 
