@@ -16,7 +16,6 @@ pub fn HomePage() -> impl IntoView {
     let (name, set_name) = signal(String::new());
     let (admin_mail, set_admin_mail) = signal(String::new());
     let (mails_text, set_mails_text) = signal(String::new());
-    let (message, set_message) = signal(String::new());
     let (num_slots, set_num_slots) = signal(2u32);
     let (slots, set_slots) = signal(vec![
         ("".to_string(), 0u32, 10u32),
@@ -41,23 +40,37 @@ pub fn HomePage() -> impl IntoView {
         let name_val = name.get();
         let admin_mail_val = admin_mail.get();
         let mails_val = mails_text.get();
-        let message_val = message.get();
         let slots_val = slots.get();
 
         let mails = split_emails(&mails_val);
 
         if name_val.is_empty() {
-            add_toast(&set_toasts, "Error", "Activity name is required", ToastKind::Error);
+            add_toast(
+                &set_toasts,
+                "Error",
+                "Activity name is required",
+                ToastKind::Error,
+            );
             set_submitting.set(false);
             return;
         }
         if admin_mail_val.is_empty() {
-            add_toast(&set_toasts, "Error", "Admin email is required", ToastKind::Error);
+            add_toast(
+                &set_toasts,
+                "Error",
+                "Admin email is required",
+                ToastKind::Error,
+            );
             set_submitting.set(false);
             return;
         }
         if mails.is_empty() {
-            add_toast(&set_toasts, "Error", "At least one participant email is required", ToastKind::Error);
+            add_toast(
+                &set_toasts,
+                "Error",
+                "At least one participant email is required",
+                ToastKind::Error,
+            );
             set_submitting.set(false);
             return;
         }
@@ -81,7 +94,6 @@ pub fn HomePage() -> impl IntoView {
             admin_mail: admin_mail_val,
             mails,
             slots: api_slots,
-            message: message_val,
         };
 
         wasm_bindgen_futures::spawn_local(async move {
@@ -89,7 +101,9 @@ pub fn HomePage() -> impl IntoView {
                 Ok(resp) => {
                     // Redirect to admin page
                     if let Some(window) = web_sys::window() {
-                        let _ = window.location().set_href(&format!("/admin?{}", resp.event_id));
+                        let _ = window
+                            .location()
+                            .set_href(&format!("/admin?{}", resp.event_id));
                     }
                 }
                 Err(e) => {
@@ -200,15 +214,10 @@ pub fn HomePage() -> impl IntoView {
                 </div>
             </div>
 
-            <div>
-                <label for="message">"Message (added to invitation email)"</label>
-                <textarea id="message"
-                    prop:value=move || message.get()
-                    on:input=move |ev| {
-                        set_message.set(crate::input_value(&ev));
-                    }
-                />
-            </div>
+            <p class="muted">
+                "After creating the event you'll be able to customize the "
+                "invitation, reminder, and result emails on the admin page."
+            </p>
 
             <div class="btn-row">
                 <button

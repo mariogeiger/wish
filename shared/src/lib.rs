@@ -9,8 +9,9 @@ pub struct Slot {
     pub vmax: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ParticipantStatus {
+    #[default]
     New,
     UpdatePending,
     MailError,
@@ -18,12 +19,6 @@ pub enum ParticipantStatus {
     Visited,
     Done,
     Modified,
-}
-
-impl Default for ParticipantStatus {
-    fn default() -> Self {
-        Self::New
-    }
 }
 
 impl ParticipantStatus {
@@ -79,9 +74,158 @@ pub struct Event {
     pub admin_mail: String,
     pub slots: Vec<Slot>,
     pub url: String,
-    pub message: String,
     pub participants: Vec<String>,
     pub creation_time: i64,
+    #[serde(default)]
+    pub templates: EmailTemplates,
+}
+
+// ── Email templates ────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailTemplates {
+    pub invite: String,
+    pub update: String,
+    pub reminder: String,
+    pub results: String,
+}
+
+impl Default for EmailTemplates {
+    fn default() -> Self {
+        Self {
+            invite: DEFAULT_INVITE_TEMPLATE.to_string(),
+            update: DEFAULT_UPDATE_TEMPLATE.to_string(),
+            reminder: DEFAULT_REMINDER_TEMPLATE.to_string(),
+            results: DEFAULT_RESULTS_TEMPLATE.to_string(),
+        }
+    }
+}
+
+/// Variable names recognized by the template renderer and highlighted in the
+/// editor. Any `$word` token that matches one of these is substituted at send
+/// time; anything else renders literally.
+pub const TEMPLATE_VARIABLES: &[&str] = &["event_name", "admin_mail", "url", "slot"];
+
+pub const DEFAULT_INVITE_TEMPLATE: &str = "Hi,\n\
+     \n\
+     You have been invited by $admin_mail to give your wishes about the event: $event_name\n\
+     \n\
+     To set your wishes, go to: $url\n\
+     \n\
+     Have a nice day,\n\
+     The Wish team";
+
+pub const DEFAULT_UPDATE_TEMPLATE: &str = "Hi,\n\
+     \n\
+     The administrator ($admin_mail) of the event $event_name has modified the slots.\n\
+     \n\
+     Please look at your wish: $url\n\
+     \n\
+     Have a nice day,\n\
+     The Wish team";
+
+pub const DEFAULT_REMINDER_TEMPLATE: &str = "Hi,\n\
+     \n\
+     Don't forget to fill your wish for the event $event_name.\n\
+     \n\
+     Go to: $url\n\
+     \n\
+     Have a nice day,\n\
+     The Wish team";
+
+pub const DEFAULT_RESULTS_TEMPLATE: &str = "Hi,\n\
+     \n\
+     You have been put in the slot $slot for the event $event_name.\n\
+     \n\
+     Have a nice day,\n\
+     The Wish team";
+
+/// Scan `$name` tokens in `template`. `emit` receives each span as either
+/// plain text or a variable reference (name, whether known). Used by both the
+/// renderer and the editor highlighter.
+pub fn scan_template<F: FnMut(TemplateSpan<'_>)>(template: &str, mut emit: F) {
+    let mut iter = template.char_indices().peekable();
+    let mut plain_start = 0usize;
+
+    while let Some(&(i, c)) = iter.peek() {
+        if c == '$' {
+            let name_start = i + 1;
+            let mut name_end = name_start;
+            let mut probe = iter.clone();
+            probe.next();
+            if let Some(&(_, ch)) = probe.peek()
+                && (ch.is_ascii_alphabetic() || ch == '_')
+            {
+                probe.next();
+                name_end += ch.len_utf8();
+                while let Some(&(j, ch2)) = probe.peek() {
+                    if ch2.is_ascii_alphanumeric() || ch2 == '_' {
+                        name_end = j + ch2.len_utf8();
+                        probe.next();
+                    } else {
+                        break;
+                    }
+                }
+                if plain_start < i {
+                    emit(TemplateSpan::Text(&template[plain_start..i]));
+                }
+                let name = &template[name_start..name_end];
+                let known = TEMPLATE_VARIABLES.contains(&name);
+                emit(TemplateSpan::Var {
+                    raw: &template[i..name_end],
+                    name,
+                    known,
+                });
+                iter = probe;
+                plain_start = name_end;
+                continue;
+            }
+        }
+        iter.next();
+    }
+    if plain_start < template.len() {
+        emit(TemplateSpan::Text(&template[plain_start..]));
+    }
+}
+
+pub enum TemplateSpan<'a> {
+    Text(&'a str),
+    Var {
+        raw: &'a str,
+        name: &'a str,
+        known: bool,
+    },
+}
+
+/// Substitute `$name` tokens in `template` using `vars`. Unknown tokens render
+/// literally (including the `$`). A token is `$` followed by one or more ASCII
+/// letters, digits, or underscores (the first char must be a letter or `_`).
+pub fn render_template(template: &str, vars: &[(&str, &str)]) -> String {
+    let mut out = String::with_capacity(template.len());
+    scan_template(template, |span| match span {
+        TemplateSpan::Text(t) => out.push_str(t),
+        TemplateSpan::Var { raw, name, .. } => {
+            if let Some((_, v)) = vars.iter().find(|(k, _)| *k == name) {
+                out.push_str(v);
+            } else {
+                out.push_str(raw);
+            }
+        }
+    });
+    out
+}
+
+/// Convert a plain-text email body into minimal HTML: HTML-escape, split on
+/// blank lines into paragraphs, and turn remaining line breaks into `<br/>`.
+pub fn text_to_html(text: &str) -> String {
+    let escaped = escape_html(text);
+    let paragraphs: Vec<String> = escaped
+        .split("\n\n")
+        .map(|p| p.trim_matches('\n').replace('\n', "<br/>"))
+        .filter(|p| !p.is_empty())
+        .map(|p| format!("<p>{p}</p>"))
+        .collect();
+    paragraphs.join("")
 }
 
 // ── API request/response types ─────────────────────────────────────
@@ -92,7 +236,6 @@ pub struct CreateEventRequest {
     pub admin_mail: String,
     pub mails: Vec<String>,
     pub slots: Vec<Slot>,
-    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +248,8 @@ pub struct AdminData {
     pub name: String,
     pub slots: Vec<Slot>,
     pub participants: Vec<Participant>,
+    #[serde(default)]
+    pub templates: EmailTemplates,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +258,8 @@ pub struct SetDataRequest {
     pub participants: Vec<ParticipantInput>,
     #[serde(default)]
     pub send_mails: bool,
+    #[serde(default)]
+    pub templates: EmailTemplates,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,7 +303,6 @@ pub struct HistoryEntry {
     pub name: String,
     pub admin_mail: String,
     pub num_participants: usize,
-    pub message: String,
     pub creation_time: i64,
 }
 
@@ -329,11 +475,92 @@ mod tests {
         assert_eq!(escape_html(""), "");
     }
 
+    // ── render_template ───────────────────────────────────────────
+
+    #[test]
+    fn render_template_substitutes_known_vars() {
+        let out = render_template(
+            "Hi $event_name, go to $url.",
+            &[("event_name", "Party"), ("url", "https://x/y")],
+        );
+        assert_eq!(out, "Hi Party, go to https://x/y.");
+    }
+
+    #[test]
+    fn render_template_leaves_unknown_vars_literal() {
+        let out = render_template("Start $ur end", &[("url", "https://x")]);
+        assert_eq!(out, "Start $ur end");
+    }
+
+    #[test]
+    fn render_template_stops_at_word_boundary() {
+        // $url_X is one token (underscore/alnum extends the name); $url. stops at '.'
+        let out = render_template("$url. and $url_x.", &[("url", "A")]);
+        assert_eq!(out, "A. and $url_x.");
+    }
+
+    #[test]
+    fn render_template_bare_dollar_is_literal() {
+        assert_eq!(render_template("price: $5", &[]), "price: $5");
+        assert_eq!(render_template("end$", &[]), "end$");
+    }
+
+    #[test]
+    fn render_template_handles_unicode_text() {
+        let out = render_template("héllo $name ✓", &[("name", "wörld")]);
+        assert_eq!(out, "héllo wörld ✓");
+    }
+
+    // ── text_to_html ──────────────────────────────────────────────
+
+    #[test]
+    fn text_to_html_wraps_paragraphs() {
+        let out = text_to_html("Hi,\n\nLine two.");
+        assert_eq!(out, "<p>Hi,</p><p>Line two.</p>");
+    }
+
+    #[test]
+    fn text_to_html_single_newline_is_br() {
+        let out = text_to_html("one\ntwo");
+        assert_eq!(out, "<p>one<br/>two</p>");
+    }
+
+    #[test]
+    fn text_to_html_escapes_html() {
+        let out = text_to_html("<script>a&b</script>");
+        assert_eq!(out, "<p>&lt;script&gt;a&amp;b&lt;/script&gt;</p>");
+    }
+
+    // ── scan_template ─────────────────────────────────────────────
+
+    #[test]
+    fn scan_template_marks_known_and_unknown() {
+        let mut spans = Vec::new();
+        scan_template("x $url y $ur z", |span| match span {
+            TemplateSpan::Text(t) => spans.push(("t", t.to_string(), false)),
+            TemplateSpan::Var { name, known, .. } => spans.push(("v", name.to_string(), known)),
+        });
+        assert_eq!(
+            spans,
+            vec![
+                ("t", "x ".into(), false),
+                ("v", "url".into(), true),
+                ("t", " y ".into(), false),
+                ("v", "ur".into(), false),
+                ("t", " z".into(), false),
+            ]
+        );
+    }
+
     // ── Slot serialization ────────────────────────────────────────
 
     #[test]
     fn slot_round_trip_json() {
-        let slot = Slot { name: "Morning".into(), vmin: 2, vmax: 5 };
+        let slot = Slot {
+            name: "Morning".into(),
+            vmin: 2,
+            vmax: 5,
+        };
         let json = serde_json::to_string(&slot).unwrap();
         let back: Slot = serde_json::from_str(&json).unwrap();
         assert_eq!(back.name, "Morning");
@@ -378,11 +605,21 @@ mod tests {
 
     #[test]
     fn ws_msg_mail_progress_round_trip() {
-        let msg = WsMsg::MailProgress { sent: 3, total: 10, errors: vec!["fail@x".into()], last_mail: Some("ok@x".into()) };
+        let msg = WsMsg::MailProgress {
+            sent: 3,
+            total: 10,
+            errors: vec!["fail@x".into()],
+            last_mail: Some("ok@x".into()),
+        };
         let json = serde_json::to_string(&msg).unwrap();
         let back: WsMsg = serde_json::from_str(&json).unwrap();
         match back {
-            WsMsg::MailProgress { sent, total, errors, last_mail } => {
+            WsMsg::MailProgress {
+                sent,
+                total,
+                errors,
+                last_mail,
+            } => {
                 assert_eq!(sent, 3);
                 assert_eq!(total, 10);
                 assert_eq!(errors, vec!["fail@x"]);
@@ -398,7 +635,18 @@ mod tests {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum WsMsg {
-    NewWish { mail: String },
-    MailProgress { sent: usize, total: usize, errors: Vec<String>, last_mail: Option<String> },
-    Feedback { title: String, html: String, msg_type: String },
+    NewWish {
+        mail: String,
+    },
+    MailProgress {
+        sent: usize,
+        total: usize,
+        errors: Vec<String>,
+        last_mail: Option<String>,
+    },
+    Feedback {
+        title: String,
+        html: String,
+        msg_type: String,
+    },
 }

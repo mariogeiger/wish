@@ -5,6 +5,7 @@ use wish_shared::*;
 use crate::api;
 use crate::components::editor::{Editor, highlight};
 use crate::components::feedback::{ToastContainer, ToastKind, add_toast};
+use crate::components::template_editor::TemplateEditor;
 use crate::hungarian;
 use crate::parse;
 
@@ -16,6 +17,10 @@ pub fn AdminPage(key: String) -> impl IntoView {
     let (event_name, set_event_name) = signal(String::new());
     let (saving, set_saving) = signal(false);
     let (ws_banner, set_ws_banner) = signal(None::<String>);
+    let (tpl_invite, set_tpl_invite) = signal(String::new());
+    let (tpl_update, set_tpl_update) = signal(String::new());
+    let (tpl_reminder, set_tpl_reminder) = signal(String::new());
+    let (tpl_results, set_tpl_results) = signal(String::new());
 
     // Fetch admin data
     let key_load = key.clone();
@@ -29,9 +34,18 @@ pub fn AdminPage(key: String) -> impl IntoView {
                     .map(|p| (p.mail.clone(), p.wish.clone(), p.status, Some(p.id.clone())))
                     .collect();
                 set_editor_text.set(parse::to_editor_text(&data.slots, &participants));
+                set_tpl_invite.set(data.templates.invite);
+                set_tpl_update.set(data.templates.update);
+                set_tpl_reminder.set(data.templates.reminder);
+                set_tpl_results.set(data.templates.results);
             }
             Err(e) => {
-                add_toast(&set_toasts, "Error", &format!("Failed to load: {e}"), ToastKind::Error);
+                add_toast(
+                    &set_toasts,
+                    "Error",
+                    &format!("Failed to load: {e}"),
+                    ToastKind::Error,
+                );
             }
         }
     });
@@ -60,9 +74,18 @@ pub fn AdminPage(key: String) -> impl IntoView {
                                         "{mail} modified their wish. Reload to see changes."
                                     )));
                                 }
-                                WsMsg::MailProgress { sent, total, errors, last_mail } => {
+                                WsMsg::MailProgress {
+                                    sent,
+                                    total,
+                                    errors,
+                                    last_mail,
+                                } => {
                                     let kind = if errors.is_empty() {
-                                        if sent == total { ToastKind::Success } else { ToastKind::Info }
+                                        if sent == total {
+                                            ToastKind::Success
+                                        } else {
+                                            ToastKind::Info
+                                        }
                                     } else {
                                         ToastKind::Error
                                     };
@@ -78,19 +101,45 @@ pub fn AdminPage(key: String) -> impl IntoView {
                                     if sent == total {
                                         let key = key_refresh.clone();
                                         wasm_bindgen_futures::spawn_local(async move {
-                                            if let Ok(data) = api::get::<AdminData>(&format!("/api/events/{key}")).await {
-                                                let participants: Vec<(String, Vec<i32>, ParticipantStatus, Option<String>)> = data
+                                            if let Ok(data) =
+                                                api::get::<AdminData>(&format!("/api/events/{key}"))
+                                                    .await
+                                            {
+                                                let participants: Vec<(
+                                                    String,
+                                                    Vec<i32>,
+                                                    ParticipantStatus,
+                                                    Option<String>,
+                                                )> = data
                                                     .participants
                                                     .iter()
-                                                    .map(|p| (p.mail.clone(), p.wish.clone(), p.status, Some(p.id.clone())))
+                                                    .map(|p| {
+                                                        (
+                                                            p.mail.clone(),
+                                                            p.wish.clone(),
+                                                            p.status,
+                                                            Some(p.id.clone()),
+                                                        )
+                                                    })
                                                     .collect();
-                                                set_editor_text.set(parse::to_editor_text(&data.slots, &participants));
+                                                set_editor_text.set(parse::to_editor_text(
+                                                    &data.slots,
+                                                    &participants,
+                                                ));
                                                 set_event_name.set(data.name);
+                                                set_tpl_invite.set(data.templates.invite);
+                                                set_tpl_update.set(data.templates.update);
+                                                set_tpl_reminder.set(data.templates.reminder);
+                                                set_tpl_results.set(data.templates.results);
                                             }
                                         });
                                     }
                                 }
-                                WsMsg::Feedback { title, html, msg_type } => {
+                                WsMsg::Feedback {
+                                    title,
+                                    html,
+                                    msg_type,
+                                } => {
                                     let kind = match msg_type.as_str() {
                                         "success" => ToastKind::Success,
                                         "error" => ToastKind::Error,
@@ -141,6 +190,12 @@ pub fn AdminPage(key: String) -> impl IntoView {
                 })
                 .collect(),
             send_mails,
+            templates: EmailTemplates {
+                invite: tpl_invite.get(),
+                update: tpl_update.get(),
+                reminder: tpl_reminder.get(),
+                results: tpl_results.get(),
+            },
         };
 
         wasm_bindgen_futures::spawn_local(async move {
@@ -154,9 +209,18 @@ pub fn AdminPage(key: String) -> impl IntoView {
                             .collect();
                     set_editor_text.set(parse::to_editor_text(&data.slots, &participants));
                     set_event_name.set(data.name);
+                    set_tpl_invite.set(data.templates.invite);
+                    set_tpl_update.set(data.templates.update);
+                    set_tpl_reminder.set(data.templates.reminder);
+                    set_tpl_results.set(data.templates.results);
 
                     if send_mails {
-                        add_toast(&set_toasts, "Saved & sending", "Data saved. Sending mails...", ToastKind::Info);
+                        add_toast(
+                            &set_toasts,
+                            "Saved & sending",
+                            "Data saved. Sending mails...",
+                            ToastKind::Info,
+                        );
                     } else {
                         add_toast(&set_toasts, "Saved", "Data saved.", ToastKind::Success);
                     }
@@ -203,12 +267,15 @@ pub fn AdminPage(key: String) -> impl IntoView {
         });
     };
 
-    let on_compute = move |_| {
-        match hungarian::compute_and_format(&editor_text.get()) {
-            Ok(text) => set_results_text.set(text),
-            Err(_) => {
-                add_toast(&set_toasts, "Parse errors", "Fix errors before computing.", ToastKind::Error);
-            }
+    let on_compute = move |_| match hungarian::compute_and_format(&editor_text.get()) {
+        Ok(text) => set_results_text.set(text),
+        Err(_) => {
+            add_toast(
+                &set_toasts,
+                "Parse errors",
+                "Fix errors before computing.",
+                ToastKind::Error,
+            );
         }
     };
 
@@ -239,18 +306,20 @@ pub fn AdminPage(key: String) -> impl IntoView {
         }
 
         if entries.is_empty() {
-            add_toast(&set_toasts, "Error", "No results to send. Compute assignment first.", ToastKind::Error);
+            add_toast(
+                &set_toasts,
+                "Error",
+                "No results to send. Compute assignment first.",
+                ToastKind::Error,
+            );
             return;
         }
 
         let key = key_results.clone();
         let req = SendResultsRequest { results: entries };
         wasm_bindgen_futures::spawn_local(async move {
-            match api::post::<_, SendMailsResponse>(
-                &format!("/api/events/{key}/results"),
-                &req,
-            )
-            .await
+            match api::post::<_, SendMailsResponse>(&format!("/api/events/{key}/results"), &req)
+                .await
             {
                 Ok(resp) => {
                     add_toast(
@@ -294,6 +363,30 @@ pub fn AdminPage(key: String) -> impl IntoView {
 
             <h3>"Problem Settings"</h3>
             <Editor text=editor_text set_text=set_editor_text />
+
+            <details class="tpl-section">
+                <summary>"Email Templates"</summary>
+                <p class="muted">
+                    "Highlighted variables are substituted at send time. Unknown "
+                    <code>"$words"</code> " render literally. Saved when you click Save."
+                </p>
+
+                <h4>"Invite (first email)"</h4>
+                <p class="muted">"Available: $event_name, $admin_mail, $url"</p>
+                <TemplateEditor text=tpl_invite set_text=set_tpl_invite />
+
+                <h4>"Update (after slots change)"</h4>
+                <p class="muted">"Available: $event_name, $admin_mail, $url"</p>
+                <TemplateEditor text=tpl_update set_text=set_tpl_update />
+
+                <h4>"Reminder"</h4>
+                <p class="muted">"Available: $event_name, $url"</p>
+                <TemplateEditor text=tpl_reminder set_text=set_tpl_reminder />
+
+                <h4>"Results (per participant)"</h4>
+                <p class="muted">"Available: $event_name, $slot"</p>
+                <TemplateEditor text=tpl_results set_text=set_tpl_results />
+            </details>
 
             <div class="btn-row">
                 <button on:click=on_save_only disabled=move || saving.get()>"Save"</button>

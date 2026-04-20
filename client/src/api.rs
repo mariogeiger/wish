@@ -3,7 +3,11 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Headers, Request, RequestInit, Response};
 
-async fn fetch_json<T: DeserializeOwned>(method: &str, url: &str, body: Option<String>) -> Result<T, String> {
+async fn fetch_json<T: DeserializeOwned>(
+    method: &str,
+    url: &str,
+    body: Option<String>,
+) -> Result<T, String> {
     let opts = RequestInit::new();
     opts.set_method(method);
 

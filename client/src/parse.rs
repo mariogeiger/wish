@@ -87,21 +87,36 @@ pub fn parse(text: &str) -> ParseResult {
                             line: line_idx,
                             message: "Expected [slots] section first".to_string(),
                         });
-                        return ParseResult { slots, participants, errors, warnings };
+                        return ParseResult {
+                            slots,
+                            participants,
+                            errors,
+                            warnings,
+                        };
                     }
                     (Section::Slots, _) => {
                         errors.push(ParseError {
                             line: line_idx,
                             message: "Expected [participants] section".to_string(),
                         });
-                        return ParseResult { slots, participants, errors, warnings };
+                        return ParseResult {
+                            slots,
+                            participants,
+                            errors,
+                            warnings,
+                        };
                     }
                     (Section::Participants, _) => {
                         errors.push(ParseError {
                             line: line_idx,
                             message: "Unexpected section".to_string(),
                         });
-                        return ParseResult { slots, participants, errors, warnings };
+                        return ParseResult {
+                            slots,
+                            participants,
+                            errors,
+                            warnings,
+                        };
                     }
                 }
             } else {
@@ -109,7 +124,12 @@ pub fn parse(text: &str) -> ParseResult {
                     line: line_idx,
                     message: "Unclosed section bracket".to_string(),
                 });
-                return ParseResult { slots, participants, errors, warnings };
+                return ParseResult {
+                    slots,
+                    participants,
+                    errors,
+                    warnings,
+                };
             }
             continue;
         }
@@ -280,7 +300,12 @@ pub fn parse_quoted_string(s: &str) -> Option<(&str, &str)> {
 /// Convert admin data back into the text editor format.
 pub fn to_editor_text(
     slots: &[Slot],
-    participants: &[(String, Vec<i32>, wish_shared::ParticipantStatus, Option<String>)],
+    participants: &[(
+        String,
+        Vec<i32>,
+        wish_shared::ParticipantStatus,
+        Option<String>,
+    )],
 ) -> String {
     let mut text = String::from("[slots]\n");
 
@@ -308,7 +333,10 @@ pub fn to_editor_text(
     }
     text.push('\n');
 
-    let mail_names: Vec<String> = participants.iter().map(|(m, _, _, _)| format!("\"{m}\"")).collect();
+    let mail_names: Vec<String> = participants
+        .iter()
+        .map(|(m, _, _, _)| format!("\"{m}\""))
+        .collect();
     let max_mail_len = mail_names.iter().map(|n| n.len()).max().unwrap_or(0);
 
     for (i, (_, wish, status, id)) in participants.iter().enumerate() {
@@ -361,10 +389,7 @@ pub fn format_results(
         .max()
         .unwrap_or(0) as usize;
 
-    text.push_str(&format!(
-        "{:<30} {:>5}",
-        "% slot name", "# ptc"
-    ));
+    text.push_str(&format!("{:<30} {:>5}", "% slot name", "# ptc"));
     for w in 0..=max_wish {
         text.push_str(&format!(" {:>5}", format!("w={w}")));
     }
@@ -384,7 +409,11 @@ pub fn format_results(
                 count += 1;
             }
         }
-        text.push_str(&format!("{:<30} {:>5}", format!("\"{}\"", slot.name), count));
+        text.push_str(&format!(
+            "{:<30} {:>5}",
+            format!("\"{}\"", slot.name),
+            count
+        ));
         for c in &slot_choices {
             text.push_str(&format!(" {:>5}", c));
         }
@@ -570,11 +599,24 @@ mod tests {
     #[test]
     fn to_editor_text_basic() {
         let slots = vec![
-            Slot { name: "A".into(), vmin: 1, vmax: 5 },
-            Slot { name: "B".into(), vmin: 0, vmax: 3 },
+            Slot {
+                name: "A".into(),
+                vmin: 1,
+                vmax: 5,
+            },
+            Slot {
+                name: "B".into(),
+                vmin: 0,
+                vmax: 3,
+            },
         ];
         let participants = vec![
-            ("alice@x".into(), vec![0, 1], ParticipantStatus::Modified, Some("abc123".into())),
+            (
+                "alice@x".into(),
+                vec![0, 1],
+                ParticipantStatus::Modified,
+                Some("abc123".into()),
+            ),
             ("bob@y".into(), vec![1, 0], ParticipantStatus::New, None),
         ];
         let text = to_editor_text(&slots, &participants);
@@ -594,18 +636,40 @@ mod tests {
     #[test]
     fn round_trip_editor_parse() {
         let slots = vec![
-            Slot { name: "Morning".into(), vmin: 1, vmax: 3 },
-            Slot { name: "Afternoon".into(), vmin: 1, vmax: 3 },
+            Slot {
+                name: "Morning".into(),
+                vmin: 1,
+                vmax: 3,
+            },
+            Slot {
+                name: "Afternoon".into(),
+                vmin: 1,
+                vmax: 3,
+            },
         ];
         let participants = vec![
-            ("a@x".into(), vec![0, 1], ParticipantStatus::Mailed, Some("id1".into())),
-            ("b@y".into(), vec![1, 0], ParticipantStatus::Modified, Some("id2".into())),
+            (
+                "a@x".into(),
+                vec![0, 1],
+                ParticipantStatus::Mailed,
+                Some("id1".into()),
+            ),
+            (
+                "b@y".into(),
+                vec![1, 0],
+                ParticipantStatus::Modified,
+                Some("id2".into()),
+            ),
         ];
 
         let text = to_editor_text(&slots, &participants);
         let parsed = parse(&text);
 
-        assert!(parsed.errors.is_empty(), "round-trip errors: {:?}\ntext:\n{text}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "round-trip errors: {:?}\ntext:\n{text}",
+            parsed.errors
+        );
         assert_eq!(parsed.slots.len(), 2);
         assert_eq!(parsed.slots[0].name, "Morning");
         assert_eq!(parsed.slots[0].vmin, 1);
@@ -623,13 +687,18 @@ mod tests {
     #[test]
     fn format_results_zero_score() {
         let slots = vec![
-            Slot { name: "A".into(), vmin: 1, vmax: 2 },
-            Slot { name: "B".into(), vmin: 1, vmax: 2 },
+            Slot {
+                name: "A".into(),
+                vmin: 1,
+                vmax: 2,
+            },
+            Slot {
+                name: "B".into(),
+                vmin: 1,
+                vmax: 2,
+            },
         ];
-        let participants = vec![
-            ("alice@x".into(), vec![0, 1]),
-            ("bob@y".into(), vec![1, 0]),
-        ];
+        let participants = vec![("alice@x".into(), vec![0, 1]), ("bob@y".into(), vec![1, 0])];
         let result = vec![0, 1]; // alice->A(w=0), bob->B(w=0) — score=0
 
         let text = format_results(&slots, &participants, &result);
@@ -644,13 +713,18 @@ mod tests {
     #[test]
     fn format_results_nonzero_score() {
         let slots = vec![
-            Slot { name: "X".into(), vmin: 1, vmax: 2 },
-            Slot { name: "Y".into(), vmin: 1, vmax: 2 },
+            Slot {
+                name: "X".into(),
+                vmin: 1,
+                vmax: 2,
+            },
+            Slot {
+                name: "Y".into(),
+                vmin: 1,
+                vmax: 2,
+            },
         ];
-        let participants = vec![
-            ("a@a".into(), vec![0, 2]),
-            ("b@b".into(), vec![1, 0]),
-        ];
+        let participants = vec![("a@a".into(), vec![0, 2]), ("b@b".into(), vec![1, 0])];
         let result = vec![1, 0]; // a->Y(w=2), b->X(w=1) — score = 4+1=5
 
         let text = format_results(&slots, &participants, &result);
@@ -661,7 +735,10 @@ mod tests {
 
     #[test]
     fn quoted_string_basic() {
-        assert_eq!(parse_quoted_string("\"hello\" rest"), Some(("hello", "rest")));
+        assert_eq!(
+            parse_quoted_string("\"hello\" rest"),
+            Some(("hello", "rest"))
+        );
     }
 
     #[test]
@@ -697,8 +774,7 @@ mod tests {
         let parsed = parse(text);
         assert!(parsed.errors.is_empty(), "errors: {:?}", parsed.errors);
 
-        let slots_data: Vec<(u32, u32)> =
-            parsed.slots.iter().map(|s| (s.vmin, s.vmax)).collect();
+        let slots_data: Vec<(u32, u32)> = parsed.slots.iter().map(|s| (s.vmin, s.vmax)).collect();
         let n = parsed.participants.len();
         let wishes: Vec<Vec<i32>> = parsed.participants.iter().map(|p| p.wish.clone()).collect();
 
@@ -741,7 +817,11 @@ mod tests {
 "#;
         let parsed = parse(text);
         assert!(parsed.errors.is_empty(), "errors: {:?}", parsed.errors);
-        assert!(parsed.warnings.is_empty(), "warnings: {:?}", parsed.warnings);
+        assert!(
+            parsed.warnings.is_empty(),
+            "warnings: {:?}",
+            parsed.warnings
+        );
         assert_eq!(parsed.slots.len(), 3);
         assert_eq!(parsed.participants.len(), 3);
         assert_eq!(parsed.slots[0].name, "Monday morning");
@@ -752,9 +832,21 @@ mod tests {
     #[test]
     fn format_results_all_participants_appear() {
         let slots = vec![
-            Slot { name: "A".into(), vmin: 1, vmax: 5 },
-            Slot { name: "B".into(), vmin: 1, vmax: 5 },
-            Slot { name: "C".into(), vmin: 1, vmax: 5 },
+            Slot {
+                name: "A".into(),
+                vmin: 1,
+                vmax: 5,
+            },
+            Slot {
+                name: "B".into(),
+                vmin: 1,
+                vmax: 5,
+            },
+            Slot {
+                name: "C".into(),
+                vmin: 1,
+                vmax: 5,
+            },
         ];
         let participants = vec![
             ("p1@x".into(), vec![0, 1, 2]),
@@ -779,13 +871,21 @@ mod tests {
     #[test]
     fn format_results_statistics_counts_correct() {
         let slots = vec![
-            Slot { name: "X".into(), vmin: 2, vmax: 2 },
-            Slot { name: "Y".into(), vmin: 1, vmax: 1 },
+            Slot {
+                name: "X".into(),
+                vmin: 2,
+                vmax: 2,
+            },
+            Slot {
+                name: "Y".into(),
+                vmin: 1,
+                vmax: 1,
+            },
         ];
         let participants = vec![
-            ("a@a".into(), vec![0, 2]),  // assigned to X, wish=0
-            ("b@b".into(), vec![1, 0]),  // assigned to X, wish=1
-            ("c@c".into(), vec![2, 0]),  // assigned to Y, wish=0
+            ("a@a".into(), vec![0, 2]), // assigned to X, wish=0
+            ("b@b".into(), vec![1, 0]), // assigned to X, wish=1
+            ("c@c".into(), vec![2, 0]), // assigned to Y, wish=0
         ];
         let result = vec![0, 0, 1]; // a→X, b→X, c→Y
         let text = format_results(&slots, &participants, &result);
@@ -797,17 +897,34 @@ mod tests {
     fn to_editor_text_alignment() {
         // Slot names of different lengths should be padded for alignment
         let slots = vec![
-            Slot { name: "A".into(), vmin: 1, vmax: 5 },
-            Slot { name: "Long Name".into(), vmin: 0, vmax: 3 },
+            Slot {
+                name: "A".into(),
+                vmin: 1,
+                vmax: 5,
+            },
+            Slot {
+                name: "Long Name".into(),
+                vmin: 0,
+                vmax: 3,
+            },
         ];
         let participants = vec![
             ("short@x".into(), vec![0, 1], ParticipantStatus::New, None),
-            ("very-long-email@example.com".into(), vec![1, 0], ParticipantStatus::Done, Some("id1".into())),
+            (
+                "very-long-email@example.com".into(),
+                vec![1, 0],
+                ParticipantStatus::Done,
+                Some("id1".into()),
+            ),
         ];
         let text = to_editor_text(&slots, &participants);
         // Should parse back without errors
         let parsed = parse(&text);
-        assert!(parsed.errors.is_empty(), "alignment broke parsing: {:?}\ntext:\n{text}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "alignment broke parsing: {:?}\ntext:\n{text}",
+            parsed.errors
+        );
         assert_eq!(parsed.slots.len(), 2);
         assert_eq!(parsed.participants.len(), 2);
     }

@@ -146,10 +146,9 @@ async fn main() -> std::io::Result<()> {
     let config = Config::from_env();
     let port = config.port;
 
-    let resend_key =
-        std::env::var("RESEND_API_KEY").unwrap_or_else(|_| "re_test_key".to_string());
-    let resend_from = std::env::var("WISH_SENDER_EMAIL")
-        .unwrap_or_else(|_| "Wish <wish@geiger.ink>".to_string());
+    let resend_key = std::env::var("RESEND_API_KEY").unwrap_or_else(|_| "re_test_key".to_string());
+    let resend_from =
+        std::env::var("WISH_SENDER_EMAIL").unwrap_or_else(|_| "Wish <wish@geiger.ink>".to_string());
 
     let state = web::Data::new(AppState {
         db: Mutex::new(load_db()),

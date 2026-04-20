@@ -1,5 +1,5 @@
+use crate::parse::{self, ParseError, ParsedParticipant};
 use wish_shared::Slot;
-use crate::parse::{self, ParsedParticipant, ParseError};
 
 /// Run the full assignment pipeline: permute, build cost matrix, hungarian, un-permute.
 /// Returns slot indices per participant (same order as input).
@@ -187,8 +187,7 @@ pub fn hungarian(cost_matrix: &[Vec<f64>]) -> Vec<i32> {
             if match_worker_by_job[min_slack_job] == -1 {
                 // Augmenting path found
                 let mut committed_job = min_slack_job as i32;
-                let mut parent_worker =
-                    parent_worker_by_committed_job[committed_job as usize];
+                let mut parent_worker = parent_worker_by_committed_job[committed_job as usize];
                 loop {
                     let temp = match_job_by_worker[parent_worker as usize];
                     match_job_by_worker[parent_worker as usize] = committed_job;
@@ -197,8 +196,7 @@ pub fn hungarian(cost_matrix: &[Vec<f64>]) -> Vec<i32> {
                     if committed_job == -1 {
                         break;
                     }
-                    parent_worker =
-                        parent_worker_by_committed_job[committed_job as usize];
+                    parent_worker = parent_worker_by_committed_job[committed_job as usize];
                 }
                 break;
             } else {
@@ -206,8 +204,7 @@ pub fn hungarian(cost_matrix: &[Vec<f64>]) -> Vec<i32> {
                 committed_workers[worker] = true;
                 for j in 0..dim {
                     if parent_worker_by_committed_job[j] == -1 {
-                        let slack =
-                            cost[worker][j] - label_by_worker[worker] - label_by_job[j];
+                        let slack = cost[worker][j] - label_by_worker[worker] - label_by_job[j];
                         if min_slack_value_by_job[j] > slack {
                             min_slack_value_by_job[j] = slack;
                             min_slack_worker_by_job[j] = worker;
@@ -411,12 +408,7 @@ mod tests {
     fn full_pipeline_respects_vmax() {
         // 4 participants, 2 slots, everyone wants slot 0
         // but slot 0 has vmax=2, so 2 must go to slot 1
-        let wishes = vec![
-            vec![0, 1],
-            vec![0, 1],
-            vec![0, 1],
-            vec![0, 1],
-        ];
+        let wishes = vec![vec![0, 1], vec![0, 1], vec![0, 1], vec![0, 1]];
         let slots = vec![(2, 2), (2, 2)];
         let cost = build_cost_matrix(&wishes, &slots, 4);
         let assignment = hungarian(&cost);
@@ -503,12 +495,7 @@ mod tests {
     fn pipeline_respects_vmin_with_permutation() {
         // 4 participants, 2 slots with vmin=2 each
         // Everyone prefers slot 0, but vmin forces 2 into each
-        let wishes = vec![
-            vec![0, 1],
-            vec![0, 1],
-            vec![0, 2],
-            vec![0, 2],
-        ];
+        let wishes = vec![vec![0, 1], vec![0, 1], vec![0, 2], vec![0, 2]];
         let slots = vec![(2, 2), (2, 2)];
         let perm = vec![3, 1, 0, 2]; // arbitrary permutation
         let result = run_assignment_pipeline(&wishes, &slots, &perm);
@@ -547,11 +534,7 @@ mod tests {
     #[test]
     fn pipeline_all_same_preference() {
         // 3 participants all rank slots identically
-        let wishes = vec![
-            vec![0, 1, 2],
-            vec![0, 1, 2],
-            vec![0, 1, 2],
-        ];
+        let wishes = vec![vec![0, 1, 2], vec![0, 1, 2], vec![0, 1, 2]];
         let slots = vec![(1, 1), (1, 1), (1, 1)];
         let perm = vec![1, 2, 0];
         let result = run_assignment_pipeline(&wishes, &slots, &perm);

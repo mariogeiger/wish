@@ -34,7 +34,11 @@ pub fn save_db(db: &Db) {
         return;
     }
     if let Err(e) = std::fs::rename(&tmp, db_path()) {
-        log::error!("Failed to rename {} -> {}: {e}", tmp.display(), db_path().display());
+        log::error!(
+            "Failed to rename {} -> {}: {e}",
+            tmp.display(),
+            db_path().display()
+        );
         return;
     }
     backup_db();

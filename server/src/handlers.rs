@@ -122,9 +122,9 @@ pub async fn create_event(
             admin_mail: body.admin_mail.clone(),
             slots: body.slots.clone(),
             url: base_url.clone(),
-            message: body.message.clone(),
             participants: participant_ids,
             creation_time: now,
+            templates: EmailTemplates::default(),
         });
 
         event_id
@@ -178,6 +178,7 @@ pub async fn get_admin_data(state: web::Data<AppState>, path: web::Path<String>)
             name: event.name.clone(),
             slots: event.slots.clone(),
             participants: get_sorted_participants(db, event),
+            templates: event.templates.clone(),
         })
     })
 }
@@ -239,6 +240,7 @@ pub async fn set_admin_data(
                 .any(|(a, b)| a.name != b.name);
 
         event.slots = body.slots.clone();
+        event.templates = body.templates.clone();
 
         // Reconcile participants
         let mut new_participant_ids = Vec::new();
@@ -286,6 +288,7 @@ pub async fn set_admin_data(
             name: event.name.clone(),
             slots: event.slots.clone(),
             participants: get_sorted_participants(db, event),
+            templates: event.templates.clone(),
         })
     });
 
@@ -316,51 +319,24 @@ pub async fn set_admin_data(
 
         let broadcast_tx = state.get_broadcast(&event_id);
         let total = to_send.len();
-        let safe_name = escape_html(&info.event_name);
-        let safe_admin = escape_html(&info.admin_mail);
-        let safe_message = escape_html(&info.event_message);
 
         let pids: Vec<String> = to_send.iter().map(|(pid, _, _)| pid.clone()).collect();
         let emails: Vec<OutgoingEmail> = to_send
             .iter()
             .map(|(pid, mail, status)| {
                 let wish_url = format!("{}/wish?{pid}", info.base_url);
-                let safe_wish_url = escape_html(&wish_url);
-                let (html, text) = if status.as_i32() <= 0 {
-                    (
-                        format!(
-                            "<p>Hi,</p>\
-                             <p>You have been invited by {safe_admin} to give your wishes about the event: <strong>{safe_name}</strong></p><br />\
-                             <pre>{safe_message}</pre>\
-                             <p>To set your wishes, go to: {safe_wish_url}</p>\
-                             <p>Have a nice day,<br />The Wish team</p>"
-                        ),
-                        format!(
-                            "Hi,\n\
-                             You have been invited by {} to give your wishes about the event: {}\n\
-                             {}\n\n\
-                             To set your wishes, go to: {wish_url}\n\n\
-                             Have a nice day,\nThe Wish team",
-                            info.admin_mail, info.event_name, info.event_message
-                        ),
-                    )
+                let vars: &[(&str, &str)] = &[
+                    ("event_name", &info.event_name),
+                    ("admin_mail", &info.admin_mail),
+                    ("url", &wish_url),
+                ];
+                let template = if status.as_i32() <= 0 {
+                    &info.templates.invite
                 } else {
-                    (
-                        format!(
-                            "<p>Hi,</p>\
-                             <p>The administrator ({safe_admin}) of the event <strong>{safe_name}</strong> has modified the slots.</p>\
-                             <p>Please look at your wish: {safe_wish_url}</p>\
-                             <p>Have a nice day,<br />The Wish team</p>"
-                        ),
-                        format!(
-                            "Hi,\n\
-                             The administrator ({}) of the event {} has modified the slots.\n\
-                             Please look at your wish: {wish_url}\n\n\
-                             Have a nice day,\nThe Wish team",
-                            info.admin_mail, info.event_name
-                        ),
-                    )
+                    &info.templates.update
                 };
+                let text = render_template(template, vars);
+                let html = text_to_html(&text);
                 OutgoingEmail {
                     to: mail.clone(),
                     subject: format!("Wish: {}", info.event_name),
@@ -401,7 +377,7 @@ struct EventInfo {
     base_url: String,
     admin_mail: String,
     event_name: String,
-    event_message: String,
+    templates: EmailTemplates,
 }
 
 fn get_event_info(state: &AppState, event_id: &str) -> Option<EventInfo> {
@@ -413,7 +389,7 @@ fn get_event_info(state: &AppState, event_id: &str) -> Option<EventInfo> {
                 base_url: event.url.clone(),
                 admin_mail: event.admin_mail.clone(),
                 event_name: event.name.clone(),
-                event_message: event.message.clone(),
+                templates: event.templates.clone(),
             })
     })
 }
@@ -443,30 +419,24 @@ pub async fn send_reminders(state: web::Data<AppState>, path: web::Path<String>)
 
     let total = to_remind.len();
     let broadcast_tx = state.get_broadcast(&event_id);
-    let safe_name = escape_html(&info.event_name);
 
     let pids: Vec<String> = to_remind.iter().map(|(pid, _)| pid.clone()).collect();
     let emails: Vec<OutgoingEmail> = to_remind
         .iter()
         .map(|(pid, mail)| {
             let wish_url = format!("{}/wish?{pid}", info.base_url);
-            let safe_wish_url = escape_html(&wish_url);
+            let vars: &[(&str, &str)] = &[
+                ("event_name", &info.event_name),
+                ("admin_mail", &info.admin_mail),
+                ("url", &wish_url),
+            ];
+            let text = render_template(&info.templates.reminder, vars);
+            let html = text_to_html(&text);
             OutgoingEmail {
                 to: mail.clone(),
                 subject: format!("Wish: {}", info.event_name),
-                html: format!(
-                    "<p>Hi,</p>\
-                     <p>Don't forget to fill your wish for the event <strong>{safe_name}</strong>.</p>\
-                     <p>Go to: {safe_wish_url}</p>\
-                     <p>Have a nice day,<br />The Wish team</p>"
-                ),
-                text: format!(
-                    "Hi,\n\
-                     Don't forget to fill your wish for the event {}.\n\
-                     Go to: {wish_url}\n\n\
-                     Have a nice day,\nThe Wish team",
-                    info.event_name
-                ),
+                html,
+                text,
             }
         })
         .collect();
@@ -516,21 +486,14 @@ pub async fn send_results(
     let mut emails: Vec<OutgoingEmail> = results
         .iter()
         .map(|entry| {
-            let safe_slot = escape_html(&entry.slot);
+            let vars: &[(&str, &str)] = &[("event_name", &info.event_name), ("slot", &entry.slot)];
+            let text = render_template(&info.templates.results, vars);
+            let html = text_to_html(&text);
             OutgoingEmail {
                 to: entry.mail.clone(),
                 subject: format!("Wish: {}", info.event_name),
-                html: format!(
-                    "<p>Hi,</p>\
-                     <p>You have been put in the slot <strong>{safe_slot}</strong> for the event <strong>{safe_name}</strong>.</p>\
-                     <p>Have a nice day,<br />The Wish team</p>"
-                ),
-                text: format!(
-                    "Hi,\n\
-                     You have been put in the slot {} for the event {}.\n\n\
-                     Have a nice day,\nThe Wish team",
-                    entry.slot, info.event_name
-                ),
+                html,
+                text,
             }
         })
         .collect();
@@ -687,7 +650,6 @@ pub async fn get_history(
                 name: e.name.clone(),
                 admin_mail: e.admin_mail.clone(),
                 num_participants: e.participants.len(),
-                message: e.message.clone(),
                 creation_time: e.creation_time,
             })
             .collect();

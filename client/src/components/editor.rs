@@ -109,25 +109,26 @@ fn push_escaped_char(html: &mut String, c: char) {
 
 /// A textarea-based editor with syntax highlighting overlay.
 #[component]
-pub fn Editor(
-    text: ReadSignal<String>,
-    set_text: WriteSignal<String>,
-) -> impl IntoView {
+pub fn Editor(text: ReadSignal<String>, set_text: WriteSignal<String>) -> impl IntoView {
     let pre_ref = NodeRef::<leptos::html::Pre>::new();
     let textarea_ref = NodeRef::<leptos::html::Textarea>::new();
 
     let errors = move || {
         let parsed = parse::parse(&text.get());
-        parsed.errors.iter().map(|e| {
-            format!("Line {}: {}", e.line + 1, e.message)
-        }).collect::<Vec<_>>()
+        parsed
+            .errors
+            .iter()
+            .map(|e| format!("Line {}: {}", e.line + 1, e.message))
+            .collect::<Vec<_>>()
     };
 
     let warnings = move || {
         let parsed = parse::parse(&text.get());
-        parsed.warnings.iter().map(|w| {
-            format!("Line {}: {}", w.line + 1, w.message)
-        }).collect::<Vec<_>>()
+        parsed
+            .warnings
+            .iter()
+            .map(|w| format!("Line {}: {}", w.line + 1, w.message))
+            .collect::<Vec<_>>()
     };
 
     // Sync scroll from textarea to pre

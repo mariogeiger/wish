@@ -85,8 +85,7 @@ pub fn HistoryPage() -> impl IntoView {
                                                     <strong>{e.name.clone()}</strong>
                                                 </a>
                                                 " (admin: "{e.admin_mail.clone()}", "
-                                                {e.num_participants}" participants): "
-                                                {e.message.clone()}
+                                                {e.num_participants}" participants)"
                                             </li>
                                         }
                                     })

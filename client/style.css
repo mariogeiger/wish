@@ -173,6 +173,59 @@ input[type="range"] { width: 100%; min-width: 120px; cursor: pointer; }
 .hl-comment  { color: #6a737d; font-style: italic; }
 .hl-string   { color: #0a3069; }
 .hl-number   { color: #0550ae; }
+.hl-variable {
+    color: #953800;
+    background: #fff5e6;
+    border-radius: 3px;
+    padding: 0 1px;
+    font-weight: 600;
+}
+
+/* ── Email templates editor ─────────────────────────────────────── */
+
+.tpl-section {
+    margin: 1rem 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.5rem 0.75rem;
+}
+.tpl-section > summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.95rem;
+    padding: 0.25rem 0;
+}
+.tpl-section h4 {
+    margin: 1rem 0 0.25rem;
+    font-size: 0.95rem;
+}
+.tpl-section p.muted {
+    margin-bottom: 0.25rem;
+}
+.tpl-section code {
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+    font-size: 0.8rem;
+    background: #fff5e6;
+    color: #953800;
+    padding: 0 3px;
+    border-radius: 2px;
+}
+.template-editor-wrap {
+    min-height: 160px;
+    margin-bottom: 0.5rem;
+}
+.template-editor-wrap .template-editor-highlight,
+.template-editor-wrap .template-editor-area {
+    min-height: 160px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+/* Plain prose isn't wrapped in spans, so the overlay needs a real color
+   (the base editor has color: transparent because every slot-editor token
+   is wrapped in a colored span). */
+.template-editor-wrap .template-editor-highlight {
+    color: var(--text);
+}
 
 .editor-errors {
     background: #fef0f0;

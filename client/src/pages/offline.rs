@@ -21,21 +21,19 @@ pub fn OfflinePage() -> impl IntoView {
     let (editor_text, set_editor_text) = signal(DEFAULT_TEXT.to_string());
     let (results_text, set_results_text) = signal(String::new());
 
-    let on_compute = move |_| {
-        match hungarian::compute_and_format(&editor_text.get()) {
-            Ok(text) => set_results_text.set(text),
-            Err(errors) => {
-                add_toast(
-                    &set_toasts,
-                    "Parse errors",
-                    &errors
-                        .iter()
-                        .map(|e| format!("Line {}: {}", e.line + 1, e.message))
-                        .collect::<Vec<_>>()
-                        .join("<br/>"),
-                    ToastKind::Error,
-                );
-            }
+    let on_compute = move |_| match hungarian::compute_and_format(&editor_text.get()) {
+        Ok(text) => set_results_text.set(text),
+        Err(errors) => {
+            add_toast(
+                &set_toasts,
+                "Parse errors",
+                &errors
+                    .iter()
+                    .map(|e| format!("Line {}: {}", e.line + 1, e.message))
+                    .collect::<Vec<_>>()
+                    .join("<br/>"),
+                ToastKind::Error,
+            );
         }
     };
 
