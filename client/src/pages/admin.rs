@@ -46,12 +46,7 @@ pub fn AdminPage(key: String) -> impl IntoView {
 
     // Write server data into both live and clean signals; clear stale state.
     let apply_admin_data = move |data: AdminData| {
-        let participants: Vec<(String, Vec<i32>, ParticipantStatus, Option<String>)> = data
-            .participants
-            .iter()
-            .map(|p| (p.mail.clone(), p.wish.clone(), p.status, Some(p.id.clone())))
-            .collect();
-        let editor = parse::to_editor_text(&data.slots, &participants);
+        let editor = parse::to_editor_text(&data.slots, &data.participants);
         set_event_name.set(data.name);
         set_editor_text.set(editor.clone());
         set_clean_editor_text.set(editor);
@@ -187,18 +182,6 @@ pub fn AdminPage(key: String) -> impl IntoView {
                                     }
                                 }
                             }
-                            WsMsg::Feedback {
-                                title,
-                                html,
-                                msg_type,
-                            } => {
-                                let kind = match msg_type.as_str() {
-                                    "success" => ToastKind::Success,
-                                    "error" => ToastKind::Error,
-                                    _ => ToastKind::Info,
-                                };
-                                add_toast(&set_toasts, &title, &html, kind);
-                            }
                         }
                     }
                 },
@@ -323,6 +306,13 @@ pub fn AdminPage(key: String) -> impl IntoView {
 
     let key_remind = key.clone();
     let on_remind = move |_| {
+        let t = translations(lang.get());
+        let confirmed = web_sys::window()
+            .and_then(|w| w.confirm_with_message(t.admin_confirm_remind).ok())
+            .unwrap_or(false);
+        if !confirmed {
+            return;
+        }
         let key = key_remind.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let t = translations(lang.get());

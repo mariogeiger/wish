@@ -1,4 +1,4 @@
-use wish_shared::Slot;
+use wish_shared::{Participant, Slot};
 
 #[derive(Debug, Clone)]
 pub struct ParseError {
@@ -298,15 +298,8 @@ pub fn parse_quoted_string(s: &str) -> Option<(&str, &str)> {
 }
 
 /// Convert admin data back into the text editor format.
-pub fn to_editor_text(
-    slots: &[Slot],
-    participants: &[(
-        String,
-        Vec<i32>,
-        wish_shared::ParticipantStatus,
-        Option<String>,
-    )],
-) -> String {
+/// Participants with an empty `id` render without the `% wish?{id}` marker.
+pub fn to_editor_text(slots: &[Slot], participants: &[Participant]) -> String {
     let mut text = String::from("[slots]\n");
 
     // Calculate column widths for alignment
@@ -335,24 +328,24 @@ pub fn to_editor_text(
 
     let mail_names: Vec<String> = participants
         .iter()
-        .map(|(m, _, _, _)| format!("\"{m}\""))
+        .map(|p| format!("\"{}\"", p.mail))
         .collect();
     let max_mail_len = mail_names.iter().map(|n| n.len()).max().unwrap_or(0);
 
-    for (i, (_, wish, status, id)) in participants.iter().enumerate() {
+    for (i, p) in participants.iter().enumerate() {
         let name = &mail_names[i];
         let padding = " ".repeat(max_mail_len - name.len() + 1);
         text.push_str(name);
         text.push_str(&padding);
-        for (j, w) in wish.iter().enumerate() {
+        for (j, w) in p.wish.iter().enumerate() {
             text.push_str(&w.to_string());
-            if j < wish.len() - 1 {
+            if j < p.wish.len() - 1 {
                 text.push(' ');
             }
         }
-        text.push_str(&format!("  % {}", status.label()));
-        if let Some(pid) = id {
-            text.push_str(&format!("  % wish?{pid}"));
+        text.push_str(&format!("  % {}", p.status.label()));
+        if !p.id.is_empty() {
+            text.push_str(&format!("  % wish?{}", p.id));
         }
         text.push('\n');
     }
@@ -611,13 +604,20 @@ mod tests {
             },
         ];
         let participants = vec![
-            (
-                "alice@x".into(),
-                vec![0, 1],
-                ParticipantStatus::Modified,
-                Some("abc123".into()),
-            ),
-            ("bob@y".into(), vec![1, 0], ParticipantStatus::New, None),
+            Participant {
+                id: "abc123".into(),
+                mail: "alice@x".into(),
+                wish: vec![0, 1],
+                event: String::new(),
+                status: ParticipantStatus::Modified,
+            },
+            Participant {
+                id: String::new(),
+                mail: "bob@y".into(),
+                wish: vec![1, 0],
+                event: String::new(),
+                status: ParticipantStatus::New,
+            },
         ];
         let text = to_editor_text(&slots, &participants);
 
@@ -648,18 +648,20 @@ mod tests {
             },
         ];
         let participants = vec![
-            (
-                "a@x".into(),
-                vec![0, 1],
-                ParticipantStatus::Mailed,
-                Some("id1".into()),
-            ),
-            (
-                "b@y".into(),
-                vec![1, 0],
-                ParticipantStatus::Modified,
-                Some("id2".into()),
-            ),
+            Participant {
+                id: "id1".into(),
+                mail: "a@x".into(),
+                wish: vec![0, 1],
+                event: String::new(),
+                status: ParticipantStatus::Mailed,
+            },
+            Participant {
+                id: "id2".into(),
+                mail: "b@y".into(),
+                wish: vec![1, 0],
+                event: String::new(),
+                status: ParticipantStatus::Modified,
+            },
         ];
 
         let text = to_editor_text(&slots, &participants);
@@ -909,13 +911,20 @@ mod tests {
             },
         ];
         let participants = vec![
-            ("short@x".into(), vec![0, 1], ParticipantStatus::New, None),
-            (
-                "very-long-email@example.com".into(),
-                vec![1, 0],
-                ParticipantStatus::Done,
-                Some("id1".into()),
-            ),
+            Participant {
+                id: String::new(),
+                mail: "short@x".into(),
+                wish: vec![0, 1],
+                event: String::new(),
+                status: ParticipantStatus::New,
+            },
+            Participant {
+                id: "id1".into(),
+                mail: "very-long-email@example.com".into(),
+                wish: vec![1, 0],
+                event: String::new(),
+                status: ParticipantStatus::Done,
+            },
         ];
         let text = to_editor_text(&slots, &participants);
         // Should parse back without errors

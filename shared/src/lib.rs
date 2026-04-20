@@ -840,9 +840,4 @@ pub enum WsMsg {
         mail: String,
         error: Option<String>,
     },
-    Feedback {
-        title: String,
-        html: String,
-        msg_type: String,
-    },
 }

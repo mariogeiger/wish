@@ -21,7 +21,7 @@ penalty via the Hungarian algorithm.
 ## Conventions
 
 - Real-time updates: the admin page opens `/api/events/{id}/ws` and reacts to
-  `WsMsg` broadcasts (`NewWish`, `MailProgress`, `Feedback`).
+  `WsMsg` broadcasts (`NewWish`, `MailProgress`).
 - i18n: four languages defined as static structs in `client/src/i18n.rs` — add
   a field to `Translations` *and* to all four language tables.
 - Emails go through Resend; templates are per-event (`EmailTemplates`) with

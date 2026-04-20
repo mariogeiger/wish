@@ -1,4 +1,5 @@
 use actix_web::{HttpResponse, web};
+use std::collections::HashSet;
 use std::future::Future;
 use wish_shared::*;
 
@@ -11,11 +12,16 @@ use crate::{AppState, gen_id};
 const MAX_SLOTS: usize = 100;
 const MAX_PARTICIPANTS: usize = 1000;
 
+fn event_participant_ids(event: &Event) -> HashSet<&str> {
+    event.participants.iter().map(String::as_str).collect()
+}
+
 fn get_sorted_participants(db: &Db, event: &Event) -> Vec<Participant> {
+    let ids = event_participant_ids(event);
     let mut participants: Vec<Participant> = db
         .participants
         .iter()
-        .filter(|p| event.participants.contains(&p.id))
+        .filter(|p| ids.contains(p.id.as_str()))
         .cloned()
         .collect();
     participants.sort_by(|a, b| a.mail.cmp(&b.mail));
@@ -313,9 +319,10 @@ pub async fn set_admin_data(
                 Some(e) => e,
                 None => return Vec::new(),
             };
+            let ids = event_participant_ids(event);
             db.participants
                 .iter()
-                .filter(|p| event.participants.contains(&p.id) && p.status.as_i32() <= 10)
+                .filter(|p| ids.contains(p.id.as_str()) && p.status.as_i32() <= 10)
                 .map(|p| (p.id.clone(), p.mail.clone(), p.status))
                 .collect()
         });
@@ -413,9 +420,10 @@ pub async fn send_reminders(state: web::Data<AppState>, path: web::Path<String>)
             Some(e) => e,
             None => return Vec::new(),
         };
+        let ids = event_participant_ids(event);
         db.participants
             .iter()
-            .filter(|p| event.participants.contains(&p.id) && p.status.needs_reminder())
+            .filter(|p| ids.contains(p.id.as_str()) && p.status.needs_reminder())
             .map(|p| (p.id.clone(), p.mail.clone()))
             .collect()
     });

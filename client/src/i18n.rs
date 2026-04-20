@@ -142,6 +142,7 @@ pub struct Translations {
     pub admin_data_saved_sending: &'static str,
     pub admin_reminders_title: &'static str,
     pub admin_reminders_sending: &'static str, // fmt "Sending {n} reminders..."
+    pub admin_confirm_remind: &'static str,    // confirm-dialog before blasting reminders
     pub admin_results_title: &'static str,
     pub admin_results_sending: &'static str, // fmt "Sending {n} result emails..."
     pub admin_no_results: &'static str,
@@ -230,6 +231,7 @@ pub const EN: Translations = Translations {
     admin_data_saved_sending: "Data saved. Sending mails...",
     admin_reminders_title: "Reminders",
     admin_reminders_sending: " reminders...",
+    admin_confirm_remind: "Send reminder emails to all participants who haven't submitted yet?",
     admin_results_title: "Results",
     admin_results_sending: " result emails...",
     admin_no_results: "No results to send. Compute assignment first.",
@@ -315,6 +317,7 @@ pub const FR: Translations = Translations {
     admin_data_saved_sending: "Données enregistrées. Envoi des e-mails…",
     admin_reminders_title: "Rappels",
     admin_reminders_sending: " rappels…",
+    admin_confirm_remind: "Envoyer des rappels à tous les participants qui n'ont pas encore répondu ?",
     admin_results_title: "Résultats",
     admin_results_sending: " e-mails de résultat…",
     admin_no_results: "Aucun résultat à envoyer. Calculez d'abord l'affectation.",
@@ -400,6 +403,7 @@ pub const IT: Translations = Translations {
     admin_data_saved_sending: "Dati salvati. Invio e-mail…",
     admin_reminders_title: "Promemoria",
     admin_reminders_sending: " promemoria…",
+    admin_confirm_remind: "Inviare promemoria a tutti i partecipanti che non hanno ancora risposto?",
     admin_results_title: "Risultati",
     admin_results_sending: " e-mail di risultato…",
     admin_no_results: "Nessun risultato da inviare. Calcola prima l'assegnazione.",
@@ -485,6 +489,7 @@ pub const DE: Translations = Translations {
     admin_data_saved_sending: "Daten gespeichert. E-Mails werden gesendet…",
     admin_reminders_title: "Erinnerungen",
     admin_reminders_sending: " Erinnerungen…",
+    admin_confirm_remind: "Erinnerungs-E-Mails an alle Teilnehmer senden, die noch nicht geantwortet haben?",
     admin_results_title: "Ergebnisse",
     admin_results_sending: " Ergebnis-E-Mails…",
     admin_no_results: "Keine Ergebnisse zum Senden. Berechne zuerst die Zuteilung.",
