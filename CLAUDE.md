@@ -2,9 +2,11 @@
 
 Scheduling tool: an admin creates an event with slots (each with min/max quotas) and
 invites participants by email. Each participant rates slots 0..n-1 (n = number
-of slots) under a fairness constraint: at most (n - v) slots may have rating ≥ v,
-so e.g. only one slot can be rated the max. The server then assigns people to
-slots minimizing total penalty via the Hungarian algorithm.
+of slots), where 0 = loved 🤩 and n-1 = hated 💩 (internal values are penalties
+the solver minimizes). A fairness constraint stops people from gaming the
+assignment by mass-downvoting: at most one slot can be rated 💩, at most two
+can be ≥ second-worst, etc. The server assigns people to slots minimizing total
+penalty via the Hungarian algorithm.
 
 ## Workspace
 
