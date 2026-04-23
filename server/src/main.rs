@@ -58,6 +58,18 @@ impl AppState {
         result
     }
 
+    /// Like `with_db_save`, but only writes to disk when the closure returns
+    /// `(result, true)`. Use for read paths that occasionally mutate (e.g.
+    /// schema fixups) to avoid writing the DB on every read.
+    fn with_db_maybe_save<R>(&self, f: impl FnOnce(&mut Db) -> (R, bool)) -> R {
+        let mut db = self.db.lock().unwrap();
+        let (result, should_save) = f(&mut db);
+        if should_save {
+            save_db(&db);
+        }
+        result
+    }
+
     fn get_or_create_room(&self, event_id: &str) -> tokio::sync::broadcast::Sender<String> {
         self.rooms
             .lock()

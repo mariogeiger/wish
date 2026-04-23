@@ -1,6 +1,6 @@
 use leptos::prelude::*;
-use web_sys::HtmlElement;
 
+use crate::components::highlighted_textarea::HighlightedTextarea;
 use crate::parse;
 
 /// Produce highlighted HTML from the editor text.
@@ -107,15 +107,12 @@ fn push_escaped_char(html: &mut String, c: char) {
     }
 }
 
-/// A textarea-based editor with syntax highlighting overlay.
+/// A textarea-based editor with syntax highlighting overlay and parse
+/// error/warning panels.
 #[component]
 pub fn Editor(text: ReadSignal<String>, set_text: WriteSignal<String>) -> impl IntoView {
-    let pre_ref = NodeRef::<leptos::html::Pre>::new();
-    let textarea_ref = NodeRef::<leptos::html::Textarea>::new();
-
     let errors = move || {
-        let parsed = parse::parse(&text.get());
-        parsed
+        parse::parse(&text.get())
             .errors
             .iter()
             .map(|e| format!("Line {}: {}", e.line + 1, e.message))
@@ -123,49 +120,15 @@ pub fn Editor(text: ReadSignal<String>, set_text: WriteSignal<String>) -> impl I
     };
 
     let warnings = move || {
-        let parsed = parse::parse(&text.get());
-        parsed
+        parse::parse(&text.get())
             .warnings
             .iter()
             .map(|w| format!("Line {}: {}", w.line + 1, w.message))
             .collect::<Vec<_>>()
     };
 
-    // Sync scroll from textarea to pre
-    let on_scroll = move |_| {
-        if let (Some(ta), Some(pre)) = (textarea_ref.get(), pre_ref.get()) {
-            let ta_el: &HtmlElement = &ta;
-            let pre_el: &HtmlElement = &pre;
-            pre_el.set_scroll_top(ta_el.scroll_top());
-            pre_el.set_scroll_left(ta_el.scroll_left());
-        }
-    };
-
     view! {
-        <div class="editor-wrap">
-            <pre
-                class="editor-highlight"
-                node_ref=pre_ref
-                aria-hidden="true"
-                inner_html=move || {
-                    let t = text.get();
-                    // Append a trailing newline so the pre always has the same height as the textarea
-                    let mut h = highlight(&t);
-                    h.push('\n');
-                    h
-                }
-            />
-            <textarea
-                class="editor-area"
-                node_ref=textarea_ref
-                prop:value=move || text.get()
-                on:input=move |ev| {
-                    set_text.set(crate::input_value(&ev));
-                }
-                on:scroll=on_scroll
-                spellcheck="false"
-            />
-        </div>
+        <HighlightedTextarea text set_text highlight=|t: String| highlight(&t) />
         {move || {
             let errs = errors();
             if errs.is_empty() {

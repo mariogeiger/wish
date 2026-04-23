@@ -14,10 +14,16 @@ pub fn db_path() -> PathBuf {
 }
 
 pub fn load_db() -> Db {
-    std::fs::read_to_string(db_path())
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    match std::fs::read_to_string(db_path()) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
+            panic!(
+                "Failed to parse {}: {e}. Refusing to start — fix or move the file aside to avoid overwriting it.",
+                db_path().display()
+            )
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Db::default(),
+        Err(e) => panic!("Failed to read {}: {e}", db_path().display()),
+    }
 }
 
 pub fn save_db(db: &Db) {

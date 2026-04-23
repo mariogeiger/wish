@@ -94,6 +94,30 @@ impl ParticipantStatus {
             Self::Done | Self::Modified => false,
         }
     }
+
+    /// Included in the next mail batch: New, UpdatePending, MailError.
+    pub fn needs_mail(self) -> bool {
+        matches!(self, Self::New | Self::UpdatePending | Self::MailError)
+    }
+
+    /// Has been mailed successfully at some point (past the Mailed threshold).
+    pub fn has_been_mailed(self) -> bool {
+        matches!(
+            self,
+            Self::Mailed | Self::Visited | Self::Done | Self::Modified
+        )
+    }
+
+    /// Pick the initial invite template over the update template when true.
+    /// True for never-successfully-mailed states: New, MailError.
+    pub fn needs_invite_template(self) -> bool {
+        matches!(self, Self::New | Self::MailError)
+    }
+
+    /// Has visited the wish page (or progressed past that point).
+    pub fn has_visited(self) -> bool {
+        matches!(self, Self::Visited | Self::Done | Self::Modified)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,8 +183,8 @@ impl EmailTemplates {
 pub const TEMPLATE_VARIABLES: &[&str] = &["event_name", "admin_mail", "url", "slot"];
 
 pub const INVITE_VARS: &[&str] = &["event_name", "admin_mail", "url"];
-pub const UPDATE_VARS: &[&str] = &["event_name", "admin_mail", "url"];
-pub const REMINDER_VARS: &[&str] = &["event_name", "admin_mail", "url"];
+pub const UPDATE_VARS: &[&str] = INVITE_VARS;
+pub const REMINDER_VARS: &[&str] = INVITE_VARS;
 pub const RESULTS_VARS: &[&str] = &["event_name", "slot"];
 
 /// Variables a template must contain — save is blocked if any are missing.

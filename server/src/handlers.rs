@@ -1,6 +1,5 @@
 use actix_web::{HttpResponse, web};
 use std::collections::HashSet;
-use std::future::Future;
 use wish_shared::*;
 
 use crate::db::Db;
@@ -11,6 +10,63 @@ use crate::{AppState, gen_id};
 
 const MAX_SLOTS: usize = 100;
 const MAX_PARTICIPANTS: usize = 1000;
+
+/// Flush participant status updates every N emails during a batch send, so
+/// that a 1000-email run writes db.json ~40 times instead of 1000. Tuned to
+/// keep lock contention low while preserving reasonable crash recovery (lose
+/// at most this many pending statuses if the process dies mid-send).
+const STATUS_FLUSH_BATCH: usize = 25;
+
+fn apply_status_updates(state: &AppState, pending: &mut Vec<(String, ParticipantStatus)>) {
+    if pending.is_empty() {
+        return;
+    }
+    state.with_db_save(|db| {
+        for (pid, status) in pending.drain(..) {
+            if let Some(p) = db.participants.iter_mut().find(|p| p.id == pid) {
+                p.status = status;
+            }
+        }
+    });
+}
+
+/// Spawn a background task that sends `emails` (each tied to `pids[i]`),
+/// broadcasting per-email progress and persisting status updates in batches.
+/// On success, records `success_status` (when `Some`); on failure always
+/// records `MailError`.
+fn spawn_mail_batch(
+    state: web::Data<AppState>,
+    event_id: &str,
+    emails: Vec<OutgoingEmail>,
+    pids: Vec<String>,
+    success_status: Option<ParticipantStatus>,
+) {
+    let total = emails.len();
+    let resend = state.resend.clone();
+    let broadcast_tx = state.get_broadcast(event_id);
+    tokio::spawn(async move {
+        let mut pending: Vec<(String, ParticipantStatus)> = Vec::new();
+        send_emails(resend, broadcast_tx, emails, total, |i, ok| {
+            let next = if ok {
+                success_status
+            } else {
+                Some(ParticipantStatus::MailError)
+            };
+            if let Some(s) = next {
+                pending.push((pids[i].clone(), s));
+                if pending.len() >= STATUS_FLUSH_BATCH {
+                    apply_status_updates(&state, &mut pending);
+                }
+            }
+        })
+        .await;
+        apply_status_updates(&state, &mut pending);
+    });
+}
+
+fn bad_request(msg: &str) -> HttpResponse {
+    HttpResponse::BadRequest().json(serde_json::json!({ "error": msg }))
+}
 
 fn event_participant_ids(event: &Event) -> HashSet<&str> {
     event.participants.iter().map(String::as_str).collect()
@@ -43,17 +99,16 @@ struct OutgoingEmail {
 /// `emails.len()` when the caller sends extra emails after this returns).
 ///
 /// `on_result` is called after each send attempt with the email index and
-/// whether it succeeded; callers use it to update participant status in the DB.
-async fn send_emails<F, Fut>(
+/// whether it succeeded; callers use it to accumulate pending DB updates.
+async fn send_emails<F>(
     resend: ResendClient,
     broadcast_tx: tokio::sync::broadcast::Sender<String>,
     emails: Vec<OutgoingEmail>,
     total: usize,
-    on_result: F,
+    mut on_result: F,
 ) -> (usize, Vec<String>)
 where
-    F: Fn(usize, bool) -> Fut,
-    Fut: Future<Output = ()>,
+    F: FnMut(usize, bool),
 {
     let mut sent = 0usize;
     let mut errors = Vec::new();
@@ -65,13 +120,13 @@ where
         {
             Ok(()) => {
                 sent += 1;
-                on_result(i, true).await;
+                on_result(i, true);
                 None
             }
             Err(e) => {
                 let line = format!("{}: {e}", email.to);
                 errors.push(line.clone());
-                on_result(i, false).await;
+                on_result(i, false);
                 Some(e)
             }
         };
@@ -93,12 +148,10 @@ pub async fn create_event(
     body: web::Json<CreateEventRequest>,
 ) -> HttpResponse {
     if body.slots.len() > MAX_SLOTS {
-        return HttpResponse::BadRequest()
-            .json(serde_json::json!({"error": "too many slots (max 100)"}));
+        return bad_request("too many slots (max 100)");
     }
     if body.mails.len() > MAX_PARTICIPANTS {
-        return HttpResponse::BadRequest()
-            .json(serde_json::json!({"error": "too many participants (max 1000)"}));
+        return bad_request("too many participants (max 1000)");
     }
 
     let base_url = state.config.base_url.clone();
@@ -202,12 +255,10 @@ pub async fn set_admin_data(
     let event_id = path.into_inner();
 
     if body.slots.len() > MAX_SLOTS {
-        return HttpResponse::BadRequest()
-            .json(serde_json::json!({"error": "too many slots (max 100)"}));
+        return bad_request("too many slots (max 100)");
     }
     if body.participants.len() > MAX_PARTICIPANTS {
-        return HttpResponse::BadRequest()
-            .json(serde_json::json!({"error": "too many participants (max 1000)"}));
+        return bad_request("too many participants (max 1000)");
     }
 
     // Validate
@@ -215,21 +266,18 @@ pub async fn set_admin_data(
     let mut sum_vmax = 0u32;
     for slot in &body.slots {
         if slot.vmin > slot.vmax {
-            return HttpResponse::BadRequest().json(serde_json::json!({"error": "vmin > vmax"}));
+            return bad_request("vmin > vmax");
         }
         sum_vmin += slot.vmin;
         sum_vmax += slot.vmax;
     }
     let n = body.participants.len() as u32;
     if n > sum_vmax || n < sum_vmin {
-        return HttpResponse::BadRequest().json(
-            serde_json::json!({"error": "participant count not in range [sum_vmin, sum_vmax]"}),
-        );
+        return bad_request("participant count not in range [sum_vmin, sum_vmax]");
     }
     for p in &body.participants {
         if p.wish.len() != body.slots.len() {
-            return HttpResponse::BadRequest()
-                .json(serde_json::json!({"error": "wish length != slots length"}));
+            return bad_request("wish length != slots length");
         }
     }
 
@@ -261,7 +309,7 @@ pub async fn set_admin_data(
 
             if let Some(p) = existing {
                 p.wish = pi.wish.clone();
-                if slots_changed && p.status.as_i32() > 10 {
+                if slots_changed && p.status.has_been_mailed() {
                     p.status = ParticipantStatus::UpdatePending;
                 }
                 new_participant_ids.push(p.id.clone());
@@ -312,7 +360,6 @@ pub async fn set_admin_data(
             Some(i) => i,
             None => return HttpResponse::Ok().json(admin_data),
         };
-        let resend = state.resend.clone();
 
         let to_send: Vec<(String, String, ParticipantStatus)> = state.with_db(|db| {
             let event = match db.events.iter().find(|e| e.id == event_id) {
@@ -322,17 +369,13 @@ pub async fn set_admin_data(
             let ids = event_participant_ids(event);
             db.participants
                 .iter()
-                .filter(|p| ids.contains(p.id.as_str()) && p.status.as_i32() <= 10)
+                .filter(|p| ids.contains(p.id.as_str()) && p.status.needs_mail())
                 .map(|p| (p.id.clone(), p.mail.clone(), p.status))
                 .collect()
         });
 
-        let broadcast_tx = state.get_broadcast(&event_id);
-        let total = to_send.len();
-
-        let pids: Vec<String> = to_send.iter().map(|(pid, _, _)| pid.clone()).collect();
-        let emails: Vec<OutgoingEmail> = to_send
-            .iter()
+        let (pids, emails): (Vec<String>, Vec<OutgoingEmail>) = to_send
+            .into_iter()
             .map(|(pid, mail, status)| {
                 let wish_url = format!("{}/wish?{pid}", info.base_url);
                 let vars: &[(&str, &str)] = &[
@@ -340,42 +383,32 @@ pub async fn set_admin_data(
                     ("admin_mail", &info.admin_mail),
                     ("url", &wish_url),
                 ];
-                let template = if status.as_i32() <= 0 {
+                let template = if status.needs_invite_template() {
                     &info.templates.invite
                 } else {
                     &info.templates.update
                 };
                 let text = render_template(template, vars);
                 let html = text_to_html(&text);
-                OutgoingEmail {
-                    to: mail.clone(),
-                    subject: format!("Wish: {}", info.event_name),
-                    html,
-                    text,
-                }
+                (
+                    pid,
+                    OutgoingEmail {
+                        to: mail,
+                        subject: format!("Wish: {}", info.event_name),
+                        html,
+                        text,
+                    },
+                )
             })
-            .collect();
+            .unzip();
 
-        let state_ref = state.clone();
-        tokio::spawn(async move {
-            send_emails(resend, broadcast_tx, emails, total, |i, ok| {
-                let state_ref = state_ref.clone();
-                let pid = pids[i].clone();
-                async move {
-                    let new_status = if ok {
-                        ParticipantStatus::Mailed
-                    } else {
-                        ParticipantStatus::MailError
-                    };
-                    state_ref.with_db_save(|db| {
-                        if let Some(p) = db.participants.iter_mut().find(|p| p.id == pid) {
-                            p.status = new_status;
-                        }
-                    });
-                }
-            })
-            .await;
-        });
+        spawn_mail_batch(
+            state.clone(),
+            &event_id,
+            emails,
+            pids,
+            Some(ParticipantStatus::Mailed),
+        );
     }
 
     HttpResponse::Ok().json(admin_data)
@@ -408,7 +441,6 @@ fn get_event_info(state: &AppState, event_id: &str) -> Option<EventInfo> {
 
 pub async fn send_reminders(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
     let event_id = path.into_inner();
-    let resend = state.resend.clone();
 
     let info = match get_event_info(&state, &event_id) {
         Some(i) => i,
@@ -428,12 +460,8 @@ pub async fn send_reminders(state: web::Data<AppState>, path: web::Path<String>)
             .collect()
     });
 
-    let total = to_remind.len();
-    let broadcast_tx = state.get_broadcast(&event_id);
-
-    let pids: Vec<String> = to_remind.iter().map(|(pid, _)| pid.clone()).collect();
-    let emails: Vec<OutgoingEmail> = to_remind
-        .iter()
+    let (pids, emails): (Vec<String>, Vec<OutgoingEmail>) = to_remind
+        .into_iter()
         .map(|(pid, mail)| {
             let wish_url = format!("{}/wish?{pid}", info.base_url);
             let vars: &[(&str, &str)] = &[
@@ -443,33 +471,20 @@ pub async fn send_reminders(state: web::Data<AppState>, path: web::Path<String>)
             ];
             let text = render_template(&info.templates.reminder, vars);
             let html = text_to_html(&text);
-            OutgoingEmail {
-                to: mail.clone(),
-                subject: format!("Wish: {}", info.event_name),
-                html,
-                text,
-            }
+            (
+                pid,
+                OutgoingEmail {
+                    to: mail,
+                    subject: format!("Wish: {}", info.event_name),
+                    html,
+                    text,
+                },
+            )
         })
-        .collect();
+        .unzip();
 
-    let state_ref = state.clone();
-    tokio::spawn(async move {
-        send_emails(resend, broadcast_tx, emails, total, |i, ok| {
-            let state_ref = state_ref.clone();
-            let pid = pids[i].clone();
-            async move {
-                if !ok {
-                    state_ref.with_db_save(|db| {
-                        if let Some(p) = db.participants.iter_mut().find(|p| p.id == pid) {
-                            p.status = ParticipantStatus::MailError;
-                        }
-                    });
-                }
-            }
-        })
-        .await;
-    });
-
+    let total = emails.len();
+    spawn_mail_batch(state.clone(), &event_id, emails, pids, None);
     HttpResponse::Ok().json(SendMailsResponse { total })
 }
 
@@ -543,7 +558,7 @@ pub async fn send_results(
     });
 
     tokio::spawn(async move {
-        send_emails(resend, broadcast_tx, emails, total, |_i, _ok| async {}).await;
+        send_emails(resend, broadcast_tx, emails, total, |_i, _ok| {}).await;
     });
 
     HttpResponse::Ok().json(SendMailsResponse { total })
@@ -553,27 +568,31 @@ pub async fn send_results(
 
 pub async fn get_wish(state: web::Data<AppState>, path: web::Path<String>) -> HttpResponse {
     let pid = path.into_inner();
-    state.with_db_save(|db| {
+    state.with_db_maybe_save(|db| {
         let participant = match db.participants.iter_mut().find(|p| p.id == pid) {
             Some(p) => p,
-            None => return HttpResponse::NotFound().finish(),
+            None => return (HttpResponse::NotFound().finish(), false),
         };
         let event = match db.events.iter().find(|e| e.id == participant.event) {
             Some(e) => e,
-            None => return HttpResponse::NotFound().finish(),
+            None => return (HttpResponse::NotFound().finish(), false),
         };
 
-        // Fix wish length if slots changed
-        if event.slots.len() != participant.wish.len() {
+        // Defensive: wish length should always match slots (enforced in
+        // set_admin_data and set_wish), but a hand-edited db.json could
+        // diverge. Fix on read and flag a save in that rare case.
+        let resized = event.slots.len() != participant.wish.len();
+        if resized {
             participant.wish = vec![0; event.slots.len()];
         }
 
-        HttpResponse::Ok().json(WishData {
+        let response = HttpResponse::Ok().json(WishData {
             name: event.name.clone(),
             mail: participant.mail.clone(),
             slots: event.slots.clone(),
             wish: participant.wish.clone(),
-        })
+        });
+        (response, resized)
     })
 }
 
@@ -589,7 +608,7 @@ pub async fn mark_wish_visited(
             Some(p) => p,
             None => return false,
         };
-        if participant.status.as_i32() < 30 {
+        if !participant.status.has_visited() {
             participant.status = ParticipantStatus::Visited;
         }
         true
@@ -609,7 +628,7 @@ pub async fn set_wish(
     let pid = path.into_inner();
 
     if !wish_shared::is_fair_wish(&body.wish) {
-        return HttpResponse::BadRequest().json(serde_json::json!({"error": "unfair wish"}));
+        return bad_request("unfair wish");
     }
 
     let event_id = state.with_db_save(|db| {
