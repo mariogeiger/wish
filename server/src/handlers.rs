@@ -683,7 +683,7 @@ pub async fn get_history(
                 creation_time: e.creation_time,
             })
             .collect();
-        entries.sort_by(|a, b| b.creation_time.cmp(&a.creation_time));
+        entries.sort_by_key(|e| std::cmp::Reverse(e.creation_time));
         HttpResponse::Ok().json(entries)
     })
 }
