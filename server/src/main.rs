@@ -4,6 +4,7 @@ use futures_util::StreamExt as _;
 use std::collections::HashMap;
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::net::UnixListener;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 pub(crate) mod db;
@@ -20,6 +21,9 @@ pub struct Config {
     pub port: u16,
     pub history_password: String,
     pub base_url: String,
+    /// The built client, served as the site: `WISH_DIST`, `client/dist` by
+    /// default.
+    pub dist: PathBuf,
 }
 
 impl Config {
@@ -33,6 +37,7 @@ impl Config {
                 .unwrap_or_else(|_| "changeme".to_string()),
             base_url: std::env::var("WISH_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:3001".to_string()),
+            dist: std::env::var_os("WISH_DIST").map_or_else(|| "client/dist".into(), PathBuf::from),
         }
     }
 }
@@ -144,8 +149,8 @@ async fn event_ws(
 
 // ── SPA fallback ───────────────────────────────────────────────────
 
-async fn spa_fallback() -> actix_web::Result<NamedFile> {
-    Ok(NamedFile::open("./client/dist/index.html")?)
+async fn spa_fallback(state: web::Data<AppState>) -> actix_web::Result<NamedFile> {
+    Ok(NamedFile::open(state.config.dist.join("index.html"))?)
 }
 
 // ── Main ───────────────────────────────────────────────────────────
@@ -157,6 +162,7 @@ async fn main() -> std::io::Result<()> {
 
     let config = Config::from_env();
     let port = config.port;
+    let dist = config.dist.clone();
 
     let resend_key = std::env::var("RESEND_API_KEY").unwrap_or_else(|_| "re_test_key".to_string());
     let resend_from =
@@ -206,7 +212,7 @@ async fn main() -> std::io::Result<()> {
                 web::post().to(handlers::debug_send_email),
             )
             // Static files (client dist)
-            .service(Files::new("/", "./client/dist").index_file("index.html"))
+            .service(Files::new("/", &dist).index_file("index.html"))
             // SPA fallback: serve index.html for client-side routes
             .default_service(web::get().to(spa_fallback))
     })
