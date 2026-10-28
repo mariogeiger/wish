@@ -221,7 +221,7 @@ async fn main() -> std::io::Result<()> {
         let listener = unsafe { TcpListener::from_raw_fd(3) };
         server.listen(listener)?
     } else {
-        server.bind(format!("0.0.0.0:{port}"))?
+        server.bind(format!("127.0.0.1:{port}"))?
     };
 
     server.run().await
