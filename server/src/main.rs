@@ -2,8 +2,8 @@ use actix_files::{Files, NamedFile};
 use actix_web::{App, HttpResponse, HttpServer, middleware, web};
 use futures_util::StreamExt as _;
 use std::collections::HashMap;
-use std::net::TcpListener;
-use std::os::unix::io::FromRawFd;
+use std::os::fd::{FromRawFd, OwnedFd};
+use std::os::unix::net::UnixListener;
 use std::sync::Mutex;
 
 pub(crate) mod db;
@@ -169,12 +169,11 @@ async fn main() -> std::io::Result<()> {
         config,
     });
 
-    log::info!("Server running at http://localhost:{port}");
-
     let server = HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
-            .wrap(middleware::Logger::new("%a \"%r\" %s %b %Dms"))
+            // The client's address, as Caddy forwards it.
+            .wrap(middleware::Logger::new("%{r}a \"%r\" %s %b %Dms"))
             .route("/health", web::get().to(handlers::health))
             // Event CRUD
             .route("/api/events", web::post().to(handlers::create_event))
@@ -213,16 +212,33 @@ async fn main() -> std::io::Result<()> {
     })
     .shutdown_timeout(1);
 
-    let server = if std::env::var("LISTEN_FDS")
-        .map(|v| v.parse::<u32>().unwrap_or(0))
-        .unwrap_or(0)
-        >= 1
-    {
-        let listener = unsafe { TcpListener::from_raw_fd(3) };
-        server.listen(listener)?
-    } else {
-        server.bind(format!("127.0.0.1:{port}"))?
+    let server = match inherited_listener() {
+        Some(listener) => {
+            log::info!("Serving the socket systemd passed");
+            server.listen_uds(listener)?
+        }
+        None => {
+            log::info!("Server running at http://localhost:{port}");
+            server.bind(format!("127.0.0.1:{port}"))?
+        }
     };
 
     server.run().await
+}
+
+/// The one listening socket systemd passes this process, by the protocol of
+/// `sd_listen_fds`: `LISTEN_PID` names it, `LISTEN_FDS` counts the sockets,
+/// which begin at descriptor 3. It comes back as a duplicate that closes on
+/// exec, and descriptor 3 is closed, so no child could inherit the listener.
+fn inherited_listener() -> Option<UnixListener> {
+    let ours = std::env::var("LISTEN_PID").ok()?.parse::<u32>().ok()? == std::process::id();
+    let one = std::env::var("LISTEN_FDS").ok()? == "1";
+    if !(ours && one) {
+        return None;
+    }
+    // SAFETY: by the protocol, descriptor 3 is a listening socket this process owns.
+    let passed = unsafe { OwnedFd::from_raw_fd(3) };
+    Some(UnixListener::from(
+        passed.try_clone().expect("the socket can be duplicated"),
+    ))
 }
